@@ -1,0 +1,541 @@
+import { ArrowLeft, ArrowRight, CheckSquare, ChevronRight, FileText, Layers, Loader2, Plus, Search, Trash2, X, Zap } from 'lucide-react';
+import * as pdfjsLib from 'pdfjs-dist';
+import React, { useEffect, useRef, useState } from 'react';
+import ReactMarkdown from 'react-markdown';
+import rehypeKatex from 'rehype-katex';
+import remarkMath from 'remark-math';
+import { supabase } from '../lib/supabaseClient';
+
+// Set worker source for PDF.js
+pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://esm.sh/pdfjs-dist@4.0.379/build/pdf.worker.mjs';
+
+interface Note {
+  id: string;
+  title: string;
+  subject: string;
+  content: string;
+  created_at: string;
+}
+
+interface NotesViewProps {
+  userId: string;
+}
+
+const NotesView: React.FC<NotesViewProps> = ({ userId }) => {
+  const [notes, setNotes] = useState<Note[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [uploading, setUploading] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedNote, setSelectedNote] = useState<Note | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Interactive content state
+  const [flashcards, setFlashcards] = useState<any[]>([]);
+  const [currentFlashcardIndex, setCurrentFlashcardIndex] = useState(0);
+  const [isFlipped, setIsFlipped] = useState(false);
+  const [showExplanation, setShowExplanation] = useState(false);
+  const [quizItems, setQuizItems] = useState<any[]>([]);
+  const [quizScores, setQuizScores] = useState<Record<number, string>>({});
+
+  useEffect(() => {
+    fetchNotes();
+  }, [userId]);
+
+  const fetchNotes = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('notes')
+        .select('*')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+      setNotes(data || []);
+    } catch (error) {
+      console.error('Error fetching notes:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const extractTextFromPdf = async (file: File): Promise<string> => {
+    const arrayBuffer = await file.arrayBuffer();
+    const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+    let fullText = '';
+
+    for (let i = 1; i <= pdf.numPages; i++) {
+      const page = await pdf.getPage(i);
+      const textContent = await page.getTextContent();
+      const pageText = textContent.items.map((item: any) => item.str).join(' ');
+      fullText += `\n\n--- Page ${i} ---\n\n` + pageText;
+    }
+
+    return fullText;
+  };
+
+  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    setUploading(true);
+    try {
+      let content = '';
+
+      if (file.type === 'application/pdf') {
+        content = await extractTextFromPdf(file);
+      } else {
+        content = await file.text();
+      }
+
+      if (!content.trim()) throw new Error("File is empty");
+
+      const { error } = await supabase.from('notes').insert({
+        user_id: userId,
+        subject: 'Imported',
+        title: file.name,
+        content: content
+      });
+
+      if (error) throw error;
+      await fetchNotes();
+    } catch (error) {
+      console.error('Error uploading note:', error);
+      alert('Failed to import note. Please check the file format.');
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
+  const handleDelete = async (noteId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!confirm('Are you sure you want to delete this note?')) return;
+
+    try {
+      const { error } = await supabase.from('notes').delete().eq('id', noteId);
+      if (error) throw error;
+      setNotes(notes.filter(n => n.id !== noteId));
+      if (selectedNote?.id === noteId) setSelectedNote(null);
+    } catch (error) {
+      console.error('Error deleting note:', error);
+    }
+  };
+
+  const handleSelectNote = (note: Note) => {
+    setSelectedNote(note);
+    // Reset interactive states
+    setFlashcards([]);
+    setQuizItems([]);
+    setQuizScores({});
+    setCurrentFlashcardIndex(0);
+    setIsFlipped(false);
+    setShowExplanation(false);
+
+    // Try to parse structured content - handle both new JSON mode and legacy array format
+    const contentTrimmed = note.content.trim();
+    const isNewFormat = contentTrimmed.startsWith('{');
+    const isLegacyFormat = contentTrimmed.startsWith('[');
+    
+    if (isNewFormat || isLegacyFormat) {
+      try {
+        const parsed = JSON.parse(note.content);
+        let data;
+        
+        if (isNewFormat) {
+          // New format: {flashcards: [...]} or {quiz: [...]}
+          data = parsed.flashcards || parsed.quiz || [];
+        } else {
+          // Legacy format: direct array [...]
+          data = parsed;
+        }
+        
+        if (Array.isArray(data)) {
+          if (note.title.toLowerCase().includes('quiz')) {
+            setQuizItems(data);
+          } else {
+            setFlashcards(data);
+          }
+        }
+      } catch (e) { console.error('Failed to parse interactive content:', e); }
+    }
+  };
+
+  const getResourceSummary = (note: Note) => {
+    // Try to parse structured content - handle both new JSON mode and legacy array format
+    const contentTrimmed = note.content.trim();
+    const isNewFormat = contentTrimmed.startsWith('{');
+    const isLegacyFormat = contentTrimmed.startsWith('[');
+    
+    if (isNewFormat || isLegacyFormat) {
+      try {
+        const parsed = JSON.parse(note.content);
+        let data;
+        
+        if (isNewFormat) {
+          // New format: {flashcards: [...]} or {quiz: [...]}
+          data = parsed.flashcards || parsed.quiz || [];
+        } else {
+          // Legacy format: direct array [...]
+          data = parsed;
+        }
+        
+        if (Array.isArray(data)) {
+          if (note.title.toLowerCase().includes('quiz')) {
+            return `${data.length} Practice Questions`;
+          } else {
+            return `Set of ${data.length} Study Flashcards`;
+          }
+        }
+      } catch (e) { console.error('Failed to parse interactive content:', e); }
+    }
+    // For text content, try to find the first meaningful line
+    const cleanText = note.content.replace(/[#*`]/g, '').trim();
+    const firstLine = cleanText.split('\n')[0];
+    return firstLine.length > 80 ? firstLine.substring(0, 80) + '...' : firstLine;
+  };
+
+  const filteredNotes = notes.filter(note =>
+    note.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    note.subject.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
+  return (
+    <div className="h-full flex flex-col bg-slate-50 dark:bg-slate-900 transition-colors relative">
+      {/* Header */}
+      <div className="p-6 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 flex justify-between items-center shrink-0">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900 dark:text-white">My Notes</h1>
+          <p className="text-slate-500 dark:text-slate-400 text-sm">Manage your summaries and imported documents</p>
+        </div>
+
+        <div className="flex items-center gap-3">
+          <div className="relative hidden md:block">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-slate-400" />
+            <input
+              type="text"
+              placeholder="Search notes..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pl-10 pr-4 py-2 rounded-lg border border-slate-200 dark:border-slate-800 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none text-sm w-64 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200"
+            />
+          </div>
+
+          <input
+            type="file"
+            ref={fileInputRef}
+            onChange={handleFileUpload}
+            accept=".txt,.md,.pdf"
+            className="hidden"
+          />
+
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            disabled={uploading}
+            className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 transition-all shadow-sm disabled:opacity-70 disabled:cursor-not-allowed"
+          >
+            {uploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+            Import Note
+          </button>
+        </div>
+      </div>
+
+      {/* Content */}
+      <div className="flex-1 overflow-y-auto p-6 scrollbar-hide">
+        {loading ? (
+          <div className="flex items-center justify-center h-full text-slate-400">
+            <Loader2 className="w-8 h-8 animate-spin" />
+          </div>
+        ) : filteredNotes.length === 0 ? (
+          <div className="text-center py-20 border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-3xl bg-white dark:bg-slate-800/30">
+            <div className="bg-slate-50 dark:bg-slate-900/50 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
+              <FileText className="w-8 h-8 text-slate-300 dark:text-slate-700" />
+            </div>
+            <h3 className="text-lg font-medium text-slate-800 dark:text-white mb-1">No notes yet</h3>
+            <p className="text-slate-500 dark:text-slate-400 text-sm mb-4 max-w-xs mx-auto">
+              Generate summaries from your subjects or import your own PDF/Text files.
+            </p>
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className="text-indigo-600 dark:text-indigo-400 font-medium text-sm hover:underline"
+            >
+              Upload your first note
+            </button>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 pb-10">
+            {filteredNotes.map((note) => (
+              <div
+                key={note.id}
+                onClick={() => handleSelectNote(note)}
+                className="bg-white dark:bg-slate-800 p-5 rounded-2xl border border-slate-200 dark:border-slate-700 hover:border-indigo-300 dark:hover:border-indigo-600 transition-all cursor-pointer group shadow-sm hover:shadow-md flex flex-col h-full relative"
+              >
+                <div className="flex items-start justify-between mb-4">
+                  <div className="bg-indigo-50 dark:bg-indigo-900/30 p-2.5 rounded-xl group-hover:bg-indigo-100 dark:group-hover:bg-indigo-900/50 transition-colors">
+                    {note.content.trim().startsWith('[') ? (
+                      note.title.toLowerCase().includes('quiz') ? <CheckSquare className="w-5 h-5 text-indigo-600 dark:text-indigo-400" /> :
+                        <Layers className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
+                    ) : <FileText className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />}
+                  </div>
+                  <button
+                    onClick={(e) => handleDelete(note.id, e)}
+                    className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg opacity-0 group-hover:opacity-100 transition-all"
+                    title="Delete Note"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+
+                <h3 className="font-bold text-slate-800 dark:text-white mb-1 line-clamp-1 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">{note.title}</h3>
+
+                <div className="flex items-center gap-2 mb-3">
+                  <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md ${note.subject === 'Imported'
+                    ? 'bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-400 border border-orange-200 dark:border-orange-800/50'
+                    : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-400'
+                    }`}>
+                    {note.subject}
+                  </span>
+                </div>
+
+                <p className="text-[13px] font-medium text-slate-500 dark:text-slate-400 mb-4 flex-1 italic line-clamp-2">
+                  {getResourceSummary(note)}
+                </p>
+
+                <div className="pt-4 border-t border-slate-50 dark:border-slate-700 flex items-center justify-between">
+                  <div className="text-brand-600 dark:text-brand-400 text-[10px] font-bold uppercase tracking-widest flex items-center gap-1.5 transition-all group-hover:translate-x-1">
+                    Open Resource <ChevronRight className="w-3.5 h-3.5" />
+                  </div>
+                  <div className="text-[9px] font-semibold text-slate-400 dark:text-slate-500 tabular-nums bg-slate-50 dark:bg-slate-800/50 px-2 py-0.5 rounded-md">
+                    {new Date(note.created_at).toLocaleDateString()}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Reading Modal */}
+      {selectedNote && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-slate-900 w-full max-w-5xl h-[90vh] rounded-[2.5rem] shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95 duration-300 border border-slate-200 dark:border-slate-800">
+            <div className="p-4 sm:p-6 border-b border-slate-100 dark:border-slate-800 flex flex-col sm:flex-row sm:justify-between sm:items-center bg-white dark:bg-slate-900 z-10 gap-4">
+              <div className="flex items-center gap-3 sm:gap-4 overflow-hidden">
+                <div className="bg-indigo-50 dark:bg-indigo-900/30 p-2 sm:p-3 rounded-2xl shrink-0">
+                  {selectedNote.title.startsWith('Flashcards:') ? <Layers className="w-5 h-5 sm:w-6 sm:h-6 text-indigo-600 dark:text-indigo-400" /> :
+                    selectedNote.title.startsWith('Quiz:') ? <CheckSquare className="w-5 h-5 sm:w-6 sm:h-6 text-indigo-600 dark:text-indigo-400" /> :
+                      <FileText className="w-5 h-5 sm:w-6 sm:h-6 text-indigo-600 dark:text-indigo-400" />}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <h2 className="text-lg sm:text-2xl font-bold text-slate-800 dark:text-white leading-tight truncate">{selectedNote.title}</h2>
+                  <div className="flex items-center gap-2 mt-0.5 sm:mt-1">
+                    <span className="text-[10px] sm:text-xs font-bold uppercase tracking-wider text-indigo-600 dark:text-indigo-400 truncate">{selectedNote.subject}</span>
+                    <span className="text-slate-300 dark:text-slate-700">•</span>
+                    <span className="text-[10px] sm:text-xs font-medium text-slate-500 dark:text-slate-500 shrink-0">{new Date(selectedNote.created_at).toLocaleDateString()}</span>
+                  </div>
+                </div>
+              </div>
+              <button
+                onClick={() => setSelectedNote(null)}
+                className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-colors group absolute top-4 right-4 sm:static sm:p-2 shrink-0"
+              >
+                <X className="w-5 h-5 sm:w-6 h-6 text-slate-400 group-hover:text-slate-600 dark:group-hover:text-slate-200" />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-4 sm:p-8 md:p-12 bg-slate-50/30 dark:bg-slate-950/20 scrollbar-hide relative">
+              {flashcards.length > 0 ? (
+                <div className="bg-white dark:bg-slate-900 p-4 sm:p-6 md:p-16 rounded-[2rem] md:rounded-[2.5rem] border border-slate-100 dark:border-slate-800 shadow-sm relative overflow-hidden min-h-[450px] md:min-h-[500px] flex flex-col items-center justify-center w-full max-w-full">
+                  {/* Interactive Flashcards */}
+                  <div className="absolute top-1/4 -left-20 w-80 h-80 bg-indigo-500/5 rounded-full blur-[100px] pointer-events-none"></div>
+                  <div className="absolute bottom-1/4 -right-20 w-80 h-80 bg-indigo-500/5 rounded-full blur-[100px] pointer-events-none"></div>
+
+                  <div className="flex flex-col items-center gap-6 w-full max-w-4xl relative z-10 px-2 sm:px-4">
+                    <div
+                      onClick={() => setIsFlipped(!isFlipped)}
+                      className="relative h-[380px] sm:h-[400px] w-full max-w-full sm:max-w-md cursor-pointer perspective-1000"
+                    >
+                      <div className={`relative w-full h-full transition-all duration-500 preserve-3d ${isFlipped ? 'rotate-y-180' : ''}`}>
+                        {/* Front */}
+                        <div className="absolute inset-0 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-[2rem] md:rounded-[40px] flex flex-col items-center justify-center p-5 sm:p-8 md:p-12 text-center backface-hidden shadow-xl overflow-hidden">
+                          <div 
+                            className="text-lg sm:text-xl md:text-2xl font-semibold text-slate-800 dark:text-white leading-relaxed overflow-y-auto max-h-[280px] sm:max-h-[300px] w-full px-2 scrollbar-hide break-words touch-pan-y"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>{flashcards[currentFlashcardIndex].front}</ReactMarkdown>
+                          </div>
+                          <div className="absolute bottom-6 sm:bottom-10 left-0 right-0 text-center pointer-events-none">
+                            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Click to flip</p>
+                          </div>
+                        </div>
+                        {/* Back */}
+                        <div className="absolute inset-0 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-[2rem] md:rounded-[40px] flex flex-col items-center justify-center p-5 sm:p-8 md:p-12 text-center backface-hidden rotate-y-180 shadow-xl overflow-hidden">
+                          <div 
+                            className={`text-lg sm:text-xl md:text-2xl font-bold text-slate-900 dark:text-white leading-tight mb-4 md:mb-6 overflow-y-auto max-h-[180px] sm:max-h-[200px] w-full px-2 transition-all duration-500 break-words touch-pan-y ${showExplanation ? 'blur-xl opacity-20 scale-95' : ''}`}
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>{flashcards[currentFlashcardIndex].back}</ReactMarkdown>
+                          </div>
+
+                          <div className={`flex flex-col items-center gap-4 transition-all duration-500 ${showExplanation ? 'blur-xl opacity-20 scale-95' : ''}`}>
+                            <button
+                              onClick={(e) => { e.stopPropagation(); setShowExplanation(!showExplanation); }}
+                              className="bg-slate-100 dark:bg-slate-700 px-4 py-2 rounded-full text-slate-600 dark:text-slate-300 font-semibold text-xs hover:bg-slate-200 transition-colors shadow-sm"
+                            >
+                              {showExplanation ? "Hide Explanation" : "Explain"}
+                            </button>
+                          </div>
+
+                          {showExplanation && (
+                            <div className="absolute inset-0 bg-white/95 dark:bg-slate-900/95 p-6 sm:p-8 flex flex-col items-center justify-center animate-in fade-in zoom-in duration-300 z-50">
+                              <div className="w-full flex justify-between items-center mb-4">
+                                <div className="flex items-center gap-2 text-brand-600 dark:text-brand-400 font-bold text-sm italic">
+                                  <Zap className="w-4 h-4" /> AI Deep Dive
+                                </div>
+                                <button 
+                                  onClick={(e) => { e.stopPropagation(); setShowExplanation(false); }}
+                                  className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-colors"
+                                >
+                                  <X className="w-4 h-4 text-slate-400" />
+                                </button>
+                              </div>
+                              <div className="flex-1 overflow-y-auto w-full text-left scrollbar-hide">
+                                <div className="text-slate-700 dark:text-slate-200 text-sm sm:text-base leading-relaxed break-words w-full">
+                                  <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>{flashcards[currentFlashcardIndex].explanation || 'No explanation available.'}</ReactMarkdown>
+                                </div>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Navigation Controls Under Card */}
+                    <div className="flex items-center justify-between w-full max-w-full sm:max-w-md px-4 mt-2">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setCurrentFlashcardIndex(Math.max(0, currentFlashcardIndex - 1));
+                          setIsFlipped(false);
+                          setShowExplanation(false);
+                        }}
+                        disabled={currentFlashcardIndex === 0}
+                        className="p-3 sm:p-4 rounded-full bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 disabled:opacity-20 transition-all shadow-sm"
+                      >
+                        <ArrowLeft className="w-5 h-5 md:w-6 md:h-6 text-slate-600 dark:text-slate-300" />
+                      </button>
+
+                      <div className="flex flex-col items-center">
+                        <span className="text-sm font-bold text-slate-400 dark:text-slate-500 mb-1">
+                          {currentFlashcardIndex + 1} / {flashcards.length}
+                        </span>
+                        <div className="w-24 h-1 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
+                          <div 
+                            className="h-full bg-brand-500 transition-all duration-300"
+                            style={{ width: `${((currentFlashcardIndex + 1) / flashcards.length) * 100}%` }}
+                          />
+                        </div>
+                      </div>
+
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setCurrentFlashcardIndex(Math.min(flashcards.length - 1, currentFlashcardIndex + 1));
+                          setIsFlipped(false);
+                          setShowExplanation(false);
+                        }}
+                        disabled={currentFlashcardIndex === flashcards.length - 1}
+                        className="p-3 sm:p-4 rounded-full bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 disabled:opacity-20 transition-all shadow-sm"
+                      >
+                        <ArrowRight className="w-5 h-5 md:w-6 md:h-6 text-slate-600 dark:text-slate-300" />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ) : quizItems.length > 0 ? (
+                <div className="bg-white dark:bg-slate-900 p-4 sm:p-8 md:p-16 rounded-[2rem] md:rounded-[2.5rem] border border-slate-100 dark:border-slate-800 shadow-sm space-y-8 md:space-y-12 max-w-4xl mx-auto w-full overflow-hidden">
+                  {/* Interactive Quiz */}
+                  {quizItems.map((item, qIdx) => (
+                    <div key={qIdx} className="space-y-4 md:space-y-6 animate-in fade-in slide-in-from-bottom-4 break-words w-full" style={{ animationDelay: `${qIdx * 100}ms` }}>
+                      <h4 className="text-base sm:text-lg md:text-xl font-bold text-slate-800 dark:text-white flex flex-col gap-2">
+                        <span className="text-[9px] sm:text-[10px] font-bold uppercase tracking-widest text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/30 px-2 py-1 rounded w-fit">Question {qIdx + 1} of {quizItems.length}</span>
+                        <div className="leading-relaxed">
+                          <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>{item.question}</ReactMarkdown>
+                        </div>
+                      </h4>
+                      <div className="grid grid-cols-1 gap-3 w-full">
+                        {item.options.map((option: string, oIdx: number) => {
+                          const isSelected = quizScores[qIdx] === option;
+                          const isCorrect = item.correctAnswer === option;
+                          const showFeedback = quizScores[qIdx] !== undefined;
+                          const letters = ['A', 'B', 'C', 'D'];
+
+                          let style = "bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 hover:border-indigo-300 dark:hover:border-indigo-600 hover:shadow-sm";
+                          let label = "bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400";
+
+                          if (showFeedback) {
+                            if (isCorrect) {
+                              style = "bg-green-50 dark:bg-green-900/20 border-green-500 text-green-700 dark:text-green-300 shadow-sm";
+                              label = "bg-green-500 text-white";
+                            } else if (isSelected) {
+                              style = "bg-red-50 dark:bg-red-900/20 border-red-500 text-red-700 dark:text-red-300 shadow-sm";
+                              label = "bg-red-500 text-white";
+                            } else {
+                              style = "bg-slate-50 dark:bg-slate-800/50 border-slate-200 dark:border-slate-700 opacity-50";
+                            }
+                          } else if (isSelected) {
+                            style = "bg-indigo-50 dark:bg-indigo-900/20 border-indigo-500 text-indigo-700 dark:text-indigo-300 shadow-sm border-2";
+                            label = "bg-indigo-500 text-white";
+                          }
+
+                          return (
+                            <button
+                              key={oIdx}
+                              disabled={showFeedback}
+                              onClick={() => setQuizScores(prev => ({ ...prev, [qIdx]: option }))}
+                              className={`p-4 sm:p-5 rounded-2xl border text-left transition-all flex items-center gap-3 sm:gap-4 group/opt w-full overflow-hidden ${style}`}
+                            >
+                              <div className={`w-6 h-6 sm:w-8 sm:h-8 rounded-xl flex items-center justify-center shrink-0 font-bold text-[10px] sm:text-xs md:text-sm transition-colors ${label}`}>
+                                {letters[oIdx]}
+                              </div>
+                              <div className="flex-1 text-[13px] sm:text-sm md:text-[15px] font-medium leading-relaxed break-words">
+                                <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>{option}</ReactMarkdown>
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                      {quizScores[qIdx] && (
+                        <div className="p-4 sm:p-6 bg-slate-50/50 dark:bg-slate-800/30 rounded-2xl border border-slate-100 dark:border-slate-800 animate-in fade-in slide-in-from-top-2 border-l-4 border-l-indigo-500 w-full overflow-hidden">
+                          <p className="text-[9px] sm:text-[10px] font-bold uppercase tracking-widest text-slate-400 dark:text-slate-500 mb-2">Detailed Explanation</p>
+                          <div className="text-[13px] sm:text-sm text-slate-600 dark:text-slate-300 leading-relaxed break-words">
+                            <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>{item.explanation}</ReactMarkdown>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="w-full max-w-4xl mx-auto bg-white dark:bg-slate-900 p-5 sm:p-8 md:p-16 rounded-[1.5rem] sm:rounded-[2rem] md:rounded-[2.5rem] border border-slate-100 dark:border-slate-800 shadow-sm relative overflow-hidden">
+                  {/* Premium watermark/accent */}
+                  <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-500/5 rounded-bl-full pointer-events-none"></div>
+
+                  <div className="prose prose-sm sm:prose-base md:prose-lg prose-slate dark:prose-invert max-w-none prose-headings:font-bold prose-headings:text-slate-800 dark:prose-headings:text-white prose-p:text-slate-600 dark:prose-p:text-slate-300 text-slate-800 dark:text-slate-100 prose-p:leading-loose prose-strong:text-indigo-700 dark:prose-strong:text-indigo-400 break-words w-full">
+                    <ReactMarkdown
+                      remarkPlugins={[remarkMath]}
+                      rehypePlugins={[rehypeKatex]}
+                    >
+                      {selectedNote.content}
+                    </ReactMarkdown>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default NotesView;
