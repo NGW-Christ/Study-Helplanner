@@ -20,7 +20,15 @@ interface QuizResponse {
 }
 
 // Ensure the API key is available
-const apiKey = process.env.API_KEY || '';
+const apiKey = typeof window !== 'undefined' 
+  ? (globalThis as any).process?.env?.GEMINI_API_KEY || 
+    (globalThis as any).process?.env?.API_KEY || 
+    process.env.GEMINI_API_KEY || 
+    process.env.API_KEY || 
+    ''
+  : process.env.GEMINI_API_KEY || process.env.API_KEY || '';
+
+console.log('API Key available:', !!apiKey);
 const ai = new GoogleGenAI({ apiKey });
 const modelId = 'gemini-2.5-flash';
 

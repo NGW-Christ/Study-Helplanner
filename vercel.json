@@ -1,0 +1,10 @@
+{
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist",
+  "installCommand": "npm install",
+  "env": {
+    "GEMINI_API_KEY": {
+      "description": "Google Gemini API key for AI functionality"
+    }
+  }
+}
