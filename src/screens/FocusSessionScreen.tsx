@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Alert } from 'react-native';
-import { COLORS, SPACING, FONT_SIZES, BORDER_RADIUS } from '../constants';
+import React, { useEffect, useRef, useState } from 'react';
+import { Alert, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { BORDER_RADIUS, COLORS, FONT_SIZES, SPACING } from '../constants';
 
 interface FocusSessionScreenProps {
   onExit: () => void;
@@ -17,8 +17,8 @@ export const FocusSessionScreen: React.FC<FocusSessionScreenProps> = ({
   const [timeRemaining, setTimeRemaining] = useState(selectedDuration * 60); // seconds
   const [isRunning, setIsRunning] = useState(false);
   const [currentTime, setCurrentTime] = useState(new Date());
-  const intervalRef = useRef<NodeJS.Timeout | null>(null);
-  const clockIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const clockIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
     // Update clock every second

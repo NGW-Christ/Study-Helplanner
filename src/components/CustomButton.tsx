@@ -1,6 +1,6 @@
 import React from 'react';
-import { TouchableOpacity, Text, StyleSheet, ActivityIndicator, ViewStyle } from 'react-native';
-import { COLORS, SPACING, BORDER_RADIUS, FONT_SIZES } from '../constants';
+import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, ViewStyle } from 'react-native';
+import { BORDER_RADIUS, COLORS, FONT_SIZES, SPACING } from '../constants';
 
 interface CustomButtonProps {
   title: string;

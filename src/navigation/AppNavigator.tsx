@@ -1,7 +1,6 @@
-import React from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createStackNavigator } from '@react-navigation/stack';
-import { View, Text } from 'react-native';
+import { Text, View } from 'react-native';
 
 const Stack = createStackNavigator();
 
@@ -21,7 +20,7 @@ const AuthScreen = () => (
 const AppNavigator = () => {
   return (
     <NavigationContainer>
-      <Stack.Navigator initialRouteName="Auth">
+      <Stack.Navigator initialRouteName="Auth" id="MainNavigator">
         <Stack.Screen 
           name="Auth" 
           component={AuthScreen} 

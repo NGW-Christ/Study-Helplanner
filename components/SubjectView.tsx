@@ -113,7 +113,7 @@ const SubjectView: React.FC<SubjectViewProps> = ({
 
   // RPM Countdown Timer Effect
   useEffect(() => {
-    let interval: NodeJS.Timeout;
+    let interval: ReturnType<typeof setInterval>;
     if (retryTimer > 0) {
       interval = setInterval(() => {
         setRetryTimer(prev => prev - 1);
@@ -1188,7 +1188,7 @@ const SubjectView: React.FC<SubjectViewProps> = ({
                             className="text-lg sm:text-xl md:text-2xl font-semibold text-slate-800 dark:text-white leading-relaxed overflow-y-auto max-h-[280px] sm:max-h-[300px] w-full px-2 scrollbar-hide break-words touch-pan-y"
                             onClick={(e) => e.stopPropagation()}
                           >
-                            <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>{flashcards[currentFlashcardIndex].front}</ReactMarkdown>
+                            <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>{flashcards[currentFlashcardIndex].question || flashcards[currentFlashcardIndex].front}</ReactMarkdown>
                           </div>
                           <div className="absolute bottom-6 sm:bottom-10 left-0 right-0 text-center pointer-events-none">
                             <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Click to flip</p>
@@ -1200,7 +1200,7 @@ const SubjectView: React.FC<SubjectViewProps> = ({
                             className={`text-lg sm:text-xl md:text-2xl font-bold text-slate-900 dark:text-white leading-tight mb-4 md:mb-6 overflow-y-auto max-h-[180px] sm:max-h-[200px] w-full px-2 transition-all duration-500 break-words touch-pan-y ${showExplanation ? 'blur-xl opacity-20 scale-95' : ''}`}
                             onClick={(e) => e.stopPropagation()}
                           >
-                            <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>{flashcards[currentFlashcardIndex].back}</ReactMarkdown>
+                            <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>{flashcards[currentFlashcardIndex].answer || flashcards[currentFlashcardIndex].back}</ReactMarkdown>
                           </div>
 
                           <div className={`flex flex-col items-center gap-4 transition-all duration-500 ${showExplanation ? 'blur-xl opacity-20 scale-95' : ''}`}>
@@ -1308,16 +1308,16 @@ const SubjectView: React.FC<SubjectViewProps> = ({
 
                           if (showFeedback) {
                             if (isCorrect) {
-                              style = "bg-green-50 dark:bg-green-900/20 border-green-500 text-green-700 dark:text-green-300 shadow-sm";
+                              style = "bg-green-50 dark:bg-green-900/30 border-green-500 text-green-700 dark:text-green-200 shadow-sm";
                               label = "bg-green-500 text-white";
                             } else if (isSelected) {
-                              style = "bg-red-50 dark:bg-red-900/20 border-red-500 text-red-700 dark:text-red-300 shadow-sm";
+                              style = "bg-red-50 dark:bg-red-900/30 border-red-500 text-red-700 dark:text-red-200 shadow-sm";
                               label = "bg-red-500 text-white";
                             } else {
                               style = "bg-slate-50 dark:bg-slate-800/50 border-slate-200 dark:border-slate-700 opacity-50";
                             }
                           } else if (isSelected) {
-                            style = "bg-indigo-50 dark:bg-indigo-900/20 border-indigo-500 text-indigo-700 dark:text-indigo-300 shadow-sm border-2";
+                            style = "bg-indigo-50 dark:bg-indigo-900/30 border-indigo-500 text-indigo-700 dark:text-indigo-200 shadow-sm border-2";
                             label = "bg-indigo-500 text-white";
                           }
 
@@ -1331,7 +1331,7 @@ const SubjectView: React.FC<SubjectViewProps> = ({
                               <div className={`w-6 h-6 sm:w-8 sm:h-8 rounded-xl flex items-center justify-center shrink-0 font-bold text-[10px] sm:text-xs md:text-sm transition-colors ${label}`}>
                                 {letters[oIdx]}
                               </div>
-                              <div className="flex-1 text-[13px] sm:text-sm md:text-[15px] font-medium leading-relaxed break-words">
+                              <div className="flex-1 text-[13px] sm:text-sm md:text-[15px] font-medium leading-relaxed break-words text-slate-700 dark:text-slate-200">
                                 <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>{option}</ReactMarkdown>
                               </div>
                             </button>
@@ -1339,9 +1339,9 @@ const SubjectView: React.FC<SubjectViewProps> = ({
                         })}
                       </div>
                       {quizScores[qIdx] && (
-                        <div className="p-4 sm:p-6 bg-slate-50/50 dark:bg-slate-800/30 rounded-2xl border border-slate-100 dark:border-slate-800 animate-in fade-in slide-in-from-top-2 border-l-4 border-l-indigo-500 w-full overflow-hidden">
-                          <p className="text-[9px] sm:text-[10px] font-bold uppercase tracking-widest text-slate-400 dark:text-slate-500 mb-2">Detailed Explanation</p>
-                          <div className="text-[13px] sm:text-sm text-slate-600 dark:text-slate-300 leading-relaxed break-words">
+                        <div className="p-4 sm:p-6 bg-slate-50/50 dark:bg-slate-800/40 rounded-2xl border border-slate-100 dark:border-slate-700 animate-in fade-in slide-in-from-top-2 border-l-4 border-l-indigo-500 w-full overflow-hidden">
+                          <p className="text-[9px] sm:text-[10px] font-bold uppercase tracking-widest text-slate-400 dark:text-slate-300 mb-2">Detailed Explanation</p>
+                          <div className="text-[13px] sm:text-sm text-slate-600 dark:text-slate-200 leading-relaxed break-words">
                             <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>{item.explanation}</ReactMarkdown>
                           </div>
                         </div>
