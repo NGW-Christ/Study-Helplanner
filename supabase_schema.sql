@@ -21,6 +21,7 @@ CREATE TABLE public.profiles (
   preferences JSONB DEFAULT '{"darkMode": false, "language": "en"}',
   daily_ai_count INTEGER DEFAULT 0,
   last_ai_usage_date DATE DEFAULT CURRENT_DATE,
+  onboarding_completed BOOLEAN DEFAULT FALSE,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 

@@ -1,31 +1,28 @@
-import Animated, { Easing, useAnimatedStyle, useSharedValue, withRepeat, withTiming } from 'react-native-reanimated';
 
 export function HelloWave() {
-  const rotation = useSharedValue(0);
-
-  rotation.value = withRepeat(
-    withTiming(25, { duration: 300, easing: Easing.inOut(Easing.ease) }),
-    4,
-    true
-  );
-
-  const animatedStyle = useAnimatedStyle(() => {
-    return {
-      transform: [{ rotate: `${rotation.value}deg` }],
-    };
-  });
-
   return (
-    <Animated.Text
-      style={[
-        {
-          fontSize: 28,
-          lineHeight: 32,
-          marginTop: -6,
-        },
-        animatedStyle,
-      ]}>
+    <span 
+      className="text-2xl leading-8 -mt-1 inline-block"
+      style={{
+        animation: 'wave 1.2s ease-in-out infinite',
+      }}
+    >
       👋
-    </Animated.Text>
-  );
+    </span>
+  )
 }
+
+// Add this to your CSS file:
+/*
+@keyframes wave {
+  0%, 100% {
+    transform: rotate(0deg);
+  }
+  25% {
+    transform: rotate(25deg);
+  }
+  75% {
+    transform: rotate(-25deg);
+  }
+}
+*/

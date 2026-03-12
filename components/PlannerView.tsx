@@ -1,15 +1,16 @@
-import React, { useState, useEffect } from 'react';
+import { Calendar as CalendarIcon, ChevronLeft, ChevronRight, Clock, Plus, Trash2 } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { SUBJECTS_CONFIG } from '../constants';
 import { supabase } from '../lib/supabaseClient';
 import { StudyPlan, UserProfile } from '../types';
-import { SUBJECTS_CONFIG } from '../constants';
-import { ChevronLeft, ChevronRight, Plus, Trash2, Calendar as CalendarIcon, Clock, CheckCircle } from 'lucide-react';
 
 interface PlannerViewProps {
   userId: string;
   userProfile: UserProfile;
+  onActivityRecorded: () => void;
 }
 
-const PlannerView: React.FC<PlannerViewProps> = ({ userId, userProfile }) => {
+const PlannerView: React.FC<PlannerViewProps> = ({ userId, userProfile, onActivityRecorded }) => {
   const [plans, setPlans] = useState<StudyPlan[]>([]);
   const [currentWeekStart, setCurrentWeekStart] = useState(new Date());
   const [loading, setLoading] = useState(true);

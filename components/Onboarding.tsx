@@ -1,6 +1,6 @@
+import { ArrowRight, BookOpen, GraduationCap } from 'lucide-react';
 import React, { useState } from 'react';
 import { Cycle, Option, UserProfile } from '../types';
-import { ArrowRight, BookOpen, GraduationCap } from 'lucide-react';
 
 interface OnboardingProps {
   onComplete: (profile: Pick<UserProfile, 'cycle' | 'option'>) => void;
@@ -12,15 +12,21 @@ const Onboarding: React.FC<OnboardingProps> = ({ onComplete }) => {
   const [option, setOption] = useState<Option | null>(null);
 
   const handleCycleSelect = (selectedCycle: Cycle) => {
+    console.log('Cycle selected:', selectedCycle);
     setCycle(selectedCycle);
     setStep(2);
   };
 
   const handleOptionSelect = (selectedOption: Option) => {
+    console.log('handleOptionSelect called with:', selectedOption);
+    console.log('Current cycle:', cycle);
     setOption(selectedOption);
     // Move to final confirmation or completion
     if (cycle) {
+        console.log('Calling onComplete with:', { cycle, option: selectedOption });
         onComplete({ cycle, option: selectedOption });
+    } else {
+        console.log('No cycle selected, cannot complete');
     }
   };
 
@@ -56,7 +62,10 @@ const Onboarding: React.FC<OnboardingProps> = ({ onComplete }) => {
              </div>
              
              <button
-               onClick={() => handleCycleSelect(Cycle.O_LEVEL)}
+               onClick={() => {
+                 console.log('O Level button clicked');
+                 handleCycleSelect(Cycle.O_LEVEL);
+               }}
                className="w-full bg-white hover:bg-indigo-50 border-2 border-slate-100 hover:border-indigo-200 p-6 rounded-xl flex items-center justify-between group transition-all"
              >
                 <div className="flex items-center gap-4">
@@ -72,7 +81,10 @@ const Onboarding: React.FC<OnboardingProps> = ({ onComplete }) => {
              </button>
 
              <button
-               onClick={() => handleCycleSelect(Cycle.A_LEVEL)}
+               onClick={() => {
+                 console.log('A Level button clicked');
+                 handleCycleSelect(Cycle.A_LEVEL);
+               }}
                className="w-full bg-white hover:bg-indigo-50 border-2 border-slate-100 hover:border-indigo-200 p-6 rounded-xl flex items-center justify-between group transition-all"
              >
                 <div className="flex items-center gap-4">
@@ -97,7 +109,10 @@ const Onboarding: React.FC<OnboardingProps> = ({ onComplete }) => {
              </div>
              
              <button
-               onClick={() => handleOptionSelect(Option.SCIENCE)}
+               onClick={() => {
+                 console.log('Science button clicked');
+                 handleOptionSelect(Option.SCIENCE);
+               }}
                className="w-full bg-white hover:bg-emerald-50 border-2 border-slate-100 hover:border-emerald-200 p-6 rounded-xl flex items-center justify-between group transition-all"
              >
                 <div className="flex items-center gap-4">
@@ -113,7 +128,10 @@ const Onboarding: React.FC<OnboardingProps> = ({ onComplete }) => {
              </button>
 
              <button
-               onClick={() => handleOptionSelect(Option.ARTS)}
+               onClick={() => {
+                 console.log('Arts button clicked');
+                 handleOptionSelect(Option.ARTS);
+               }}
                className="w-full bg-white hover:bg-rose-50 border-2 border-slate-100 hover:border-rose-200 p-6 rounded-xl flex items-center justify-between group transition-all"
              >
                 <div className="flex items-center gap-4">

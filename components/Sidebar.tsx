@@ -40,6 +40,10 @@ interface SidebarProps {
     onUpdateProfile: (updatedFields: Partial<UserProfile>) => Promise<void>;
     isOpen: boolean;
     onClose: () => void;
+    streak: number;
+    taskCount: number;
+    isMobileMenuOpen: boolean;
+    setIsMobileMenuOpen: (open: boolean) => void;
 }
 
 type SettingsTab = 'account' | 'academic' | 'ai' | 'appearance' | 'support';

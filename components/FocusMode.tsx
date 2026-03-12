@@ -1,12 +1,13 @@
-import React, { useState, useEffect } from 'react';
+import { BellOff, CheckCircle, Maximize, Play, Smartphone, X } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
 import { FOCUS_DURATIONS } from '../constants';
 import { supabase } from '../lib/supabaseClient';
-import { Maximize, X, Play, Smartphone, BellOff, CheckCircle } from 'lucide-react';
 
 interface FocusModeProps {
   userId: string;
   onExit: () => void;
   onSessionComplete: () => void;
+  initialDuration?: number;
 }
 
 enum FocusStep {
@@ -15,7 +16,7 @@ enum FocusStep {
   ACTIVE = 2,
 }
 
-const FocusMode: React.FC<FocusModeProps> = ({ userId, onExit, onSessionComplete }) => {
+const FocusMode: React.FC<FocusModeProps> = ({ userId, onExit, onSessionComplete, initialDuration = 25 }) => {
   const [step, setStep] = useState<FocusStep>(FocusStep.AWARENESS);
   const [duration, setDuration] = useState<number>(25); // minutes
   const [timeLeft, setTimeLeft] = useState<number>(25 * 60);

@@ -23,6 +23,7 @@ export interface UserProfile {
   preferences: UserPreferences;
   daily_ai_count: number;
   last_ai_usage_date: string;
+  onboarding_completed?: boolean;
 }
 
 export enum AppView {
@@ -31,6 +32,7 @@ export enum AppView {
   PAPERS = 'Papers',
   NOTES = 'Notes',
   SUBJECT = 'Subject',
+  STATISTICS = 'Statistics',
 }
 
 export enum SubjectActionType {
