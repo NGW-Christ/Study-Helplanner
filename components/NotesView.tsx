@@ -367,43 +367,39 @@ const NotesView: React.FC<NotesViewProps> = ({ userId }) => {
  </div>
  </div>
  {/* Back */}
- <div className="absolute inset-0 bg-white border border-slate-200 rounded-[2rem] md:rounded-[40px] flex flex-col items-center justify-center p-5 sm:p-8 md:p-12 text-center backface-hidden rotate-y-180 shadow-xl overflow-hidden text-slate-900 ">
+ <div className="absolute inset-0 bg-white border border-slate-200 rounded-[2rem] md:rounded-[40px] flex flex-col items-center pt-10 px-5 sm:px-8 md:px-12 pb-16 backface-hidden rotate-y-180 shadow-xl overflow-hidden text-slate-900 ">
  <div 
- className={`text-lg sm:text-xl md:text-2xl font-semibold leading-tight mb-4 md:mb-6 overflow-y-auto max-h-[180px] sm:max-h-[200px] w-full px-2 transition-all duration-500 break-words touch-pan-y ${showExplanation ? 'blur-xl opacity-20 scale-95' : ''}`}
+ className="flex-1 w-full overflow-y-auto px-2 scrollbar-hide touch-pan-y"
  onClick={(e) => e.stopPropagation()}
  >
+ <div className="text-lg sm:text-xl md:text-2xl font-semibold leading-relaxed text-center mb-6 break-words">
  <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>{flashcards[currentFlashcardIndex].answer || flashcards[currentFlashcardIndex].back}</ReactMarkdown>
  </div>
-
- <div className={`flex flex-col items-center gap-4 transition-all duration-500 ${showExplanation ? 'blur-xl opacity-20 scale-95' : ''}`}>
- <button
- onClick={(e) => { e.stopPropagation(); setShowExplanation(!showExplanation); }}
- className="bg-slate-100 px-4 py-2 rounded-full text-slate-600 font-semibold text-xs hover:bg-slate-200 transition-colors shadow-sm"
- >
- {showExplanation ? "Hide Explanation" : "Explain"}
- </button>
+ 
+ {showExplanation ? (
+ <div className="pt-6 border-t border-slate-100 animate-in fade-in slide-in-from-top-4 duration-500">
+ <div className="flex items-center gap-2 text-indigo-600 font-bold text-xs uppercase tracking-widest mb-3 justify-center">
+ <Zap className="w-4 h-4" /> Detailed Explanation
  </div>
-
- {showExplanation && (
- <div className="absolute inset-0 bg-white/95 p-6 sm:p-8 flex flex-col items-center justify-center animate-in fade-in zoom-in duration-300 z-50">
- <div className="w-full flex justify-between items-center mb-4">
- <div className="flex items-center gap-2 text-indigo-600 font-semibold text-sm italic">
- <Zap className="w-4 h-4" /> AI Deep Dive
- </div>
- <button 
- onClick={(e) => { e.stopPropagation(); setShowExplanation(false); }}
- className="p-1.5 hover:bg-slate-100 rounded-full transition-colors"
- >
- <X className="w-4 h-4 text-slate-400" />
- </button>
- </div>
- <div className="flex-1 overflow-y-auto w-full text-left scrollbar-hide">
- <div className="text-slate-700 text-sm sm:text-base leading-relaxed break-words w-full">
+ <div className="text-sm sm:text-base text-slate-600 leading-relaxed font-medium break-words text-left">
  <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>{flashcards[currentFlashcardIndex].explanation || 'No explanation available.'}</ReactMarkdown>
  </div>
  </div>
+ ) : (
+ <div className="flex justify-center mt-4">
+ <button
+ onClick={(e) => { e.stopPropagation(); setShowExplanation(true); }}
+ className="bg-indigo-50 px-6 py-2.5 rounded-full text-indigo-600 font-bold text-sm hover:focus:ring-2 hover:bg-indigo-100 transition-all shadow-sm active:scale-95"
+ >
+ View Explanation
+ </button>
  </div>
  )}
+ </div>
+
+ <div className="absolute bottom-6 left-0 right-0 text-center pointer-events-none">
+ <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Click to flip again</p>
+ </div>
  </div>
  </div>
  </div>

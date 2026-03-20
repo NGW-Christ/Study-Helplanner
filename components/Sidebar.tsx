@@ -251,7 +251,7 @@ const Sidebar: React.FC<SidebarProps> = ({
       `}>
                 {/* Header */}
                 <div className="p-6 border-b border-slate-100  flex justify-between items-center shrink-0">
-                    <div className="flex flex-col animate-in fade-in slide-in-from-left duration-500">
+                    <div className="flex flex-col">
                         <div className="flex items-center gap-3">
                             <div className="w-8 h-8 rounded-full bg-slate-900 flex items-center justify-center shrink-0">
                                 <GraduationCap className="w-5 h-5 text-white" />
@@ -274,11 +274,10 @@ const Sidebar: React.FC<SidebarProps> = ({
                             <button
                                 key={item.view}
                                 onClick={() => onNavigate(item.view)}
-                                className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-semibold transition-all duration-200 animate-in fade-in slide-in-from-left-4 ${currentView === item.view && !selectedSubject
+                                className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors ${currentView === item.view && !selectedSubject
                                         ? 'bg-indigo-50  text-indigo-700  shadow-sm border border-indigo-100 '
                                         : 'text-slate-600  hover:bg-slate-50  hover:text-slate-900 '
                                     }`}
-                                style={{ animationDelay: `${idx * 50}ms` }}
                             >
                                 <item.icon className={`w-4 h-4 ${currentView === item.view && !selectedSubject ? 'text-indigo-600' : 'text-slate-400'}`} />
                                 {item.label}
@@ -291,7 +290,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                     </div>
 
                     {/* To-Do List */}
-                    <div className="animate-in fade-in duration-700 delay-200">
+                    <div>
                         <div className="flex items-center justify-between mb-3 px-2">
                             <h3 className="text-[10px] font-semibold text-slate-400  uppercase tracking-[0.2em]">To-Do List</h3>
                             <button
@@ -354,7 +353,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                     </div>
 
                     {/* Subjects List */}
-                    <div className="animate-in fade-in duration-700 delay-300">
+                    <div>
                         <h3 className="text-[10px] font-semibold text-slate-400  uppercase tracking-[0.2em] mb-3 px-2">
                             Your Subjects
                         </h3>
@@ -363,11 +362,10 @@ const Sidebar: React.FC<SidebarProps> = ({
                                 <button
                                     key={subject}
                                     onClick={() => onNavigate(AppView.SUBJECT, subject)}
-                                    className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-semibold transition-all duration-200 text-left animate-in fade-in slide-in-from-left-4 ${selectedSubject === subject
+                                    className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors text-left ${selectedSubject === subject
                                             ? 'bg-slate-900  text-white shadow-lg shadow-slate-900/20'
                                             : 'text-slate-600  hover:bg-slate-50  hover:text-slate-900 '
                                         }`}
-                                    style={{ animationDelay: `${(idx + 4) * 50}ms` }}
                                 >
                                     <BookOpen className={`w-3.5 h-3.5 ${selectedSubject === subject ? 'text-indigo-400' : 'text-slate-400'}`} />
                                     <span className="truncate">{subject}</span>

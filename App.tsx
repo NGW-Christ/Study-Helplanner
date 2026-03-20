@@ -1,3 +1,4 @@
+import 'katex/dist/katex.min.css';
 import { Calendar, FileText, HelpCircle, Hourglass, Loader2, Menu, RefreshCw, Trophy, Zap } from 'lucide-react'
 import React, { useEffect, useState } from 'react'
 import { BrowserRouter as Router } from 'react-router-dom'
@@ -405,7 +406,7 @@ const AppContent: React.FC = () => {
         />
 
         {/* Main Content */}
-        <main className="flex-1 overflow-hidden bg-light-background">
+        <main className="flex-1 overflow-hidden bg-light-background flex flex-col">
           {currentView === AppView.DASHBOARD && (
             <div className="p-6 md:p-10 h-full overflow-y-auto bg-light-background">
               <header className="mb-8 md:mb-10">
@@ -466,7 +467,7 @@ const AppContent: React.FC = () => {
 
               {/* Active Subject View Area if subject is selected */}
               {selectedSubject && (
-                <div className="mt-10 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                <div className="mt-10">
                   <div className="mb-6 flex items-center justify-between">
                     <div>
                       <h3 className="text-2xl font-semibold text-slate-900 mb-1">{selectedSubject}</h3>
