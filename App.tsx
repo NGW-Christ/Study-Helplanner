@@ -1,4 +1,4 @@
-import { Calendar, FileText, Hourglass, Loader2, Trophy } from 'lucide-react'
+import { Calendar, FileText, HelpCircle, Hourglass, Loader2, Menu, RefreshCw, Trophy, Zap } from 'lucide-react'
 import React, { useEffect, useState } from 'react'
 import { BrowserRouter as Router } from 'react-router-dom'
 import Auth from './components/Auth'
@@ -12,7 +12,8 @@ import { SUBJECTS_CONFIG } from './constants'
 import { supabase } from './lib/supabaseClient'
 import { AppView, Cycle, Option, UserProfile } from './types'
 
-const App: React.FC = () => {
+
+const AppContent: React.FC = () => {
   const [session, setSession] = useState<any>(null)
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null)
   const [currentView, setCurrentView] = useState<AppView>(AppView.DASHBOARD)
@@ -24,56 +25,78 @@ const App: React.FC = () => {
   const [taskCount, setTaskCount] = useState(0)
 
   useEffect(() => {
-    // Check active session
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session)
-      if (session) {
-        Promise.all([
-          fetchProfile(session.user.id),
-          fetchStreak(session.user.id),
-          fetchTaskCount(session.user.id)
-        ]).finally(() => {
-          setLoading(false)
-        })
-      } else {
-        setLoading(false)
+    let mounted = true;
+
+    // Check active session and listen for auth changes
+    const initializeAuth = async () => {
+      // Get initial session manually to speed up initial load
+      const { data: { session: initialSession } } = await supabase.auth.getSession();
+      if (mounted) {
+        setSession(initialSession);
+        if (initialSession) {
+          try {
+            await Promise.all([
+              fetchProfile(initialSession.user.id),
+              fetchStreak(initialSession.user.id),
+              fetchTaskCount(initialSession.user.id)
+            ]);
+          } catch (error) {
+            console.error('Initial data fetch error:', error);
+          } finally {
+            if (mounted) setLoading(false);
+          }
+        } else {
+          setLoading(false);
+        }
       }
-    })
 
-    // Listen for auth changes
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session)
-      if (session) {
-        Promise.all([
-          fetchProfile(session.user.id),
-          fetchStreak(session.user.id),
-          fetchTaskCount(session.user.id)
-        ]).finally(() => {
-          setLoading(false)
-        })
-      } else {
-        setUserProfile(null)
-        setStreak(0)
-        setLoading(false)
-      }
-    })
+      const {
+        data: { subscription },
+      } = supabase.auth.onAuthStateChange(async (_event, session) => {
+        if (!mounted) return;
+        
+        console.log('Auth state change event:', _event);
+        setSession(session);
+        
+        if (session) {
+          try {
+            console.log('User session found, fetching data...');
+            await Promise.all([
+              fetchProfile(session.user.id),
+              fetchStreak(session.user.id),
+              fetchTaskCount(session.user.id)
+            ]);
+            console.log('Data fetching complete');
+          } catch (error) {
+            console.error('Auth state change data fetch error:', error);
+          } finally {
+            if (mounted) setLoading(false);
+          }
+        } else {
+          console.log('No user session found');
+          setUserProfile(null);
+          setStreak(0);
+          if (mounted) setLoading(false);
+        }
+      });
 
-    return () => subscription.unsubscribe()
-  }, [])
+      return () => {
+        subscription.unsubscribe();
+      };
+    };
 
-  // Apply Dark Mode Effect
-  useEffect(() => {
-    if (userProfile?.preferences?.darkMode) {
-      document.documentElement.classList.add('dark')
-    } else {
-      document.documentElement.classList.remove('dark')
-    }
-  }, [userProfile?.preferences?.darkMode])
+    const cleanup = initializeAuth();
+    return () => {
+      mounted = false;
+      cleanup.then(unsub => unsub?.());
+    };
+  }, []);
+
+
 
   const fetchProfile = async (userId: string) => {
     try {
+      console.log('Fetching profile for:', userId);
       const { data, error } = await supabase
         .from('profiles')
         .select('*')
@@ -81,11 +104,83 @@ const App: React.FC = () => {
         .single()
 
       if (error) {
-        console.error('Error fetching profile:', error)
-        return
+        console.log('Profile not found, creating new profile...');
+        // Create a new profile if it doesn't exist (ProfileService.upsertProfile logic)
+        const { data: newProfile, error: insertError } = await supabase
+          .from('profiles')
+          .upsert({
+            id: userId,
+            email: session?.user.email!,
+            full_name: session?.user.user_metadata?.full_name || session?.user.email?.split('@')[0] || 'Student',
+            cycle: session?.user.user_metadata?.cycle || null,
+            option_type: session?.user.user_metadata?.option || null,
+            onboarding_completed: !!(session?.user.user_metadata?.cycle && session?.user.user_metadata?.option),
+            preferences: { darkMode: false, language: 'en' },
+            updated_at: new Date().toISOString(),
+          })
+          .select()
+          .single();
+
+        if (insertError) {
+          console.error('Error creating profile:', insertError);
+          return;
+        }
+
+        if (newProfile) {
+          console.log('New profile created successfully:', newProfile);
+          setUserProfile({
+            id: newProfile.id,
+            email: newProfile.email,
+            full_name: newProfile.full_name || 'Student',
+            cycle: newProfile.cycle as Cycle,
+            option: newProfile.option_type as Option,
+            subjects: newProfile.subjects || (newProfile.cycle && newProfile.option_type ? SUBJECTS_CONFIG[newProfile.cycle as Cycle][newProfile.option_type as Option] : []),
+            plan_tier: newProfile.plan_tier || 'free',
+            preferences: newProfile.preferences || { darkMode: false, language: 'en' },
+            daily_ai_count: newProfile.daily_ai_count || 0,
+            last_ai_usage_date: newProfile.last_ai_usage_date || new Date().toISOString().split('T')[0],
+            onboarding_completed: newProfile.onboarding_completed || false
+          });
+        }
+        return;
       }
 
       if (data) {
+        console.log('Profile fetched successfully:', data);
+        
+        // Sync with session metadata if database fields are missing but metadata has them
+        let needsUpdate = false;
+        const updates: any = {};
+        
+        if (!data.cycle && session?.user.user_metadata?.cycle) {
+          updates.cycle = session.user.user_metadata.cycle;
+          needsUpdate = true;
+        }
+        if (!data.option_type && session?.user.user_metadata?.option) {
+          updates.option_type = session.user.user_metadata.option;
+          needsUpdate = true;
+        }
+        
+        if (needsUpdate) {
+          console.log('Syncing database profile with auth metadata:', updates);
+          const { data: updatedData } = await supabase
+            .from('profiles')
+            .update({
+              ...updates,
+              onboarding_completed: true,
+              updated_at: new Date().toISOString()
+            })
+            .eq('id', userId)
+            .select()
+            .single();
+          
+          if (updatedData) {
+            data.cycle = updatedData.cycle;
+            data.option_type = updatedData.option_type;
+            data.onboarding_completed = updatedData.onboarding_completed;
+          }
+        }
+
         // Handle daily reset of AI count if date changed
         const today = new Date().toISOString().split('T')[0]
         let dailyCount = data.daily_ai_count
@@ -95,15 +190,18 @@ const App: React.FC = () => {
             // Optimistically update local, background update DB
             supabase.from('profiles').update({ 
                 daily_ai_count: 0, 
-                last_ai_usage_date: today 
+                last_ai_usage_date: today,
+                updated_at: new Date().toISOString()
             }).eq('id', userId)
         }
 
         setUserProfile({
-            full_name: data.full_name || session?.user.email?.split('@')[0] || 'Student',
+            id: data.id,
+            email: data.email,
+            full_name: data.full_name || 'Student',
             cycle: data.cycle as Cycle,
             option: data.option_type as Option,
-            subjects: data.subjects || SUBJECTS_CONFIG[data.cycle as Cycle][data.option_type as Option],
+            subjects: data.subjects || (data.cycle && data.option_type ? SUBJECTS_CONFIG[data.cycle as Cycle][data.option_type as Option] : []),
             plan_tier: data.plan_tier || 'free',
             preferences: data.preferences || { darkMode: false, language: 'en' },
             daily_ai_count: dailyCount || 0,
@@ -112,7 +210,7 @@ const App: React.FC = () => {
         })
       }
     } catch (error) {
-      console.error('Unexpected error fetching profile', error)
+      console.error('Unexpected error in fetchProfile:', error)
     }
   }
 
@@ -171,12 +269,23 @@ const App: React.FC = () => {
     return standardTips[dayOfYear % standardTips.length]
   }
 
+  const getDaysToGCE = () => {
+    const today = new Date();
+    const gceDate = new Date(today.getFullYear(), 5, 1); // June 1st
+    if (today > gceDate) {
+      gceDate.setFullYear(today.getFullYear() + 1);
+    }
+    const diffTime = Math.abs(gceDate.getTime() - today.getTime());
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    return diffDays;
+  }
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-900">
         <div className="flex flex-col items-center gap-4">
-          <Loader2 className="w-8 h-8 animate-spin text-indigo-600 dark:text-indigo-400" />
-          <p className="text-slate-600 dark:text-slate-400">Loading your study space...</p>
+          <Loader2 className="w-8 h-8 animate-spin text-indigo-600" />
+          <p className="text-slate-600">Loading your study space...</p>
         </div>
       </div>
     )
@@ -187,61 +296,93 @@ const App: React.FC = () => {
   }
 
   if (userProfile && !userProfile.onboarding_completed) {
+    // Skip onboarding if cycle and option are already set (existing users)
+    if (userProfile.cycle && userProfile.option) {
+      console.log('Existing user with profile, skipping onboarding');
+      // Update local state directly to show dashboard
+      setUserProfile({
+        ...userProfile,
+        onboarding_completed: true
+      });
+      return null;
+    }
+
     return <Onboarding onComplete={async ({ cycle, option }) => {
-      console.log('onComplete called with:', { cycle, option });
-      console.log('Current session:', session);
-      
       try {
-        // First try to update the profile (if it exists)
-        const { error: updateError } = await supabase
+        // Sync with Auth metadata as per Auth service reference
+        const { error: authError } = await supabase.auth.updateUser({
+          data: {
+            cycle,
+            option,
+          },
+        });
+
+        if (authError) {
+          console.error('Failed to update auth metadata:', authError);
+          return;
+        }
+
+        // ProfileService.updateProfile logic (database sync)
+        const { data: updatedProfile, error: updateError } = await supabase
           .from('profiles')
           .update({ 
             cycle, 
             option_type: option,
-            onboarding_completed: true 
+            onboarding_completed: true,
+            updated_at: new Date().toISOString()
           })
-          .eq('id', session.user.id);
-
-        console.log('Database update result:', { updateError });
+          .eq('id', session.user.id)
+          .select()
+          .single();
 
         if (updateError) {
-          // If update fails, try to insert the profile (if it doesn't exist)
-          console.log('Update failed, trying to insert profile...');
-          const { error: insertError } = await supabase
-            .from('profiles')
-            .insert({
-              id: session.user.id,
-              cycle,
-              option_type: option,
-              onboarding_completed: true,
-              full_name: session.user.email?.split('@')[0] || 'Student'
-            });
-
-          console.log('Database insert result:', { insertError });
-
-          if (insertError) {
-            console.error('Both update and insert failed:', { updateError, insertError });
-            return;
-          }
+          console.error('Failed to update profile:', updateError);
+          return;
         }
 
-        // Update local state
-        setUserProfile({
-          ...userProfile,
-          cycle,
-          option,
-          onboarding_completed: true
-        });
-        console.log('Profile updated successfully');
+        if (updatedProfile) {
+          // Update local state
+          setUserProfile({
+            ...userProfile!,
+            cycle: updatedProfile.cycle as Cycle,
+            option: updatedProfile.option_type as Option,
+            subjects: updatedProfile.subjects || SUBJECTS_CONFIG[updatedProfile.cycle as Cycle][updatedProfile.option_type as Option],
+            onboarding_completed: true
+          });
+        }
       } catch (error) {
         console.error('Unexpected error in onboarding completion:', error);
       }
     }} />
   }
 
+  const handleUpdateProfile = async (updatedFields: Partial<UserProfile>) => {
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .update({
+          ...updatedFields,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', session.user.id)
+        .select()
+        .single();
+
+      if (error) throw error;
+      if (data) {
+        setUserProfile(prev => prev ? {
+          ...prev,
+          ...updatedFields
+        } : null);
+      }
+    } catch (error) {
+      console.error('Error updating profile:', error);
+    }
+  };
+
   return (
     <Router>
-      <div className="min-h-screen bg-slate-50 dark:bg-slate-900 flex">
+      <div className="min-h-screen bg-light-background text-slate-900 font-sans flex">
         {/* Sidebar */}
         <Sidebar
           userId={session.user.id}
@@ -258,98 +399,150 @@ const App: React.FC = () => {
           isMobileMenuOpen={isMobileMenuOpen}
           setIsMobileMenuOpen={setIsMobileMenuOpen}
           onLogout={handleLogout}
-          onUpdateProfile={async () => {}}
+          onUpdateProfile={handleUpdateProfile}
           isOpen={isMobileMenuOpen}
           onClose={() => setIsMobileMenuOpen(false)}
         />
 
         {/* Main Content */}
-        <main className="flex-1 overflow-hidden">
+        <main className="flex-1 overflow-hidden bg-light-background">
           {currentView === AppView.DASHBOARD && (
-            <div className="h-full flex">
-              <div className="flex-1 p-6 overflow-y-auto">
-                <div className="max-w-7xl mx-auto">
-                  <div className="mb-8 flex justify-between items-end">
-                    <div>
-                      <h2 className="text-3xl font-bold text-slate-900 dark:text-white mb-2">
-                        Welcome back, {userProfile?.full_name?.split(' ')[0]}!
-                      </h2>
-                      <p className="text-slate-600 dark:text-slate-400">
-                        {userProfile?.cycle && userProfile?.option
-                          ? `You're studying ${userProfile.cycle} with ${userProfile.option} focus`
-                          : 'Ready to start learning?'}
-                      </p>
+            <div className="p-6 md:p-10 h-full overflow-y-auto bg-light-background">
+              <header className="mb-8 md:mb-10">
+                <div className="flex items-center gap-4 mb-2 lg:hidden">
+                  <button
+                    onClick={() => setIsMobileMenuOpen(true)}
+                    className="p-2 hover:bg-slate-100 rounded-lg"
+                  >
+                    <Menu className="w-6 h-6 text-slate-600" />
+                  </button>
+                </div>
+                <h1 className="text-2xl md:text-3xl font-semibold text-slate-900">
+                  Hello, {userProfile?.option === Option.SCIENCE ? 'Scientist' : 'Scholar'}
+                </h1>
+                <p className="text-slate-500 mt-2">
+                  Ready to make progress on your {userProfile?.cycle} exams?
+                </p>
+              </header>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
+                  <div className="flex items-center gap-3 mb-4">
+                    <div className="p-2 bg-blue-50 rounded-lg text-blue-600">
+                      <Trophy className="w-5 h-5" />
                     </div>
-                    <button
-                      onClick={handleLogout}
-                      className="px-4 py-2 text-sm font-medium text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-700"
+                    <h3 className="font-medium text-slate-800">Study Streak</h3>
+                  </div>
+                  <div className="text-3xl font-semibold text-slate-900">{streak} Days</div>
+                  <p className="text-sm text-slate-500 mt-1">
+                    {streak > 0 ? "Keep the momentum going!" : "Start your streak today!"}
+                  </p>
+                </div>
+
+                <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
+                  <div className="flex items-center gap-3 mb-4">
+                    <div className="p-2 bg-purple-50 rounded-lg text-purple-600">
+                      <Calendar className="w-5 h-5" />
+                    </div>
+                    <h3 className="font-medium text-slate-800">Pending Tasks</h3>
+                  </div>
+                  <div className="text-3xl font-semibold text-slate-900">{taskCount}</div>
+                  <p className="text-sm text-slate-500 mt-1">Tasks due today or overdue.</p>
+                </div>
+
+                <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
+                  <div className="flex items-center gap-3 mb-4">
+                    <div className="p-2 bg-orange-50 rounded-lg text-orange-600">
+                      <Hourglass className="w-5 h-5" />
+                    </div>
+                    <h3 className="font-medium text-slate-800">Days to GCE</h3>
+                  </div>
+                  <div className="text-3xl font-semibold text-slate-900">{getDaysToGCE()}</div>
+                  <p className="text-sm text-slate-500 mt-1">Written Exams (Est. June 1)</p>
+                </div>
+              </div>
+
+
+
+              {/* Active Subject View Area if subject is selected */}
+              {selectedSubject && (
+                <div className="mt-10 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                  <div className="mb-6 flex items-center justify-between">
+                    <div>
+                      <h3 className="text-2xl font-semibold text-slate-900 mb-1">{selectedSubject}</h3>
+                      <p className="text-slate-500">Access your specialized learning tools</p>
+                    </div>
+                    <button 
+                      onClick={() => setCurrentView(AppView.SUBJECT)}
+                      className="px-4 py-2 bg-indigo-600 text-white rounded-xl font-semibold text-sm hover:bg-indigo-700 transition-colors shadow-md shadow-indigo-200"
                     >
-                      Sign Out
+                      Open Study View
                     </button>
                   </div>
-
-                  {/* Subject Cards */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
-                    {userProfile?.subjects?.map((subject: string, idx: number) => (
-                      <div
-                        key={subject}
-                        onClick={() => {
-                          setSelectedSubject(subject)
-                          setCurrentView(AppView.SUBJECT)
-                        }}
-                        className="bg-white dark:bg-slate-800 p-6 rounded-xl border border-slate-200 dark:border-slate-700 hover:border-indigo-300 dark:hover:border-indigo-600 hover:shadow-lg transition-all cursor-pointer group"
-                      >
-                        <div className="flex items-center justify-between mb-4">
-                          <h3 className="text-lg font-bold text-slate-900 dark:text-white">{subject}</h3>
-                          <Trophy className="w-5 h-5 text-amber-500" />
-                        </div>
-                        <p className="text-slate-600 dark:text-slate-400 text-sm">
-                          Continue your {subject} studies
-                        </p>
-                      </div>
-                    ))}
-                  </div>
-
-                  {/* Quick Actions */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                  
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                     <button
-                      onClick={() => setCurrentView(AppView.PLANNER)}
-                      className="p-6 bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 hover:border-indigo-300 dark:hover:border-indigo-600 hover:shadow-lg transition-all group"
+                      onClick={() => setCurrentView(AppView.SUBJECT)}
+                      className="flex items-center gap-4 p-4 bg-white rounded-xl border border-slate-200 hover:border-indigo-300 transition-all text-left group"
                     >
-                      <Calendar className="w-8 h-8 text-indigo-600 dark:text-indigo-400 mb-3 group-hover:scale-110 transition-transform" />
-                      <h4 className="font-bold text-slate-900 dark:text-white">Study Planner</h4>
-                      <p className="text-slate-600 dark:text-slate-400 text-sm mt-1">Schedule your sessions</p>
+                      <div className="w-10 h-10 bg-indigo-50 rounded-lg flex items-center justify-center group-hover:scale-110 transition-transform">
+                        <Zap className="w-5 h-5 text-indigo-600" />
+                      </div>
+                      <div>
+                        <h4 className="font-semibold text-slate-900 text-sm">Quick Summary</h4>
+                        <p className="text-xs text-slate-500">Overview of a topic</p>
+                      </div>
                     </button>
 
                     <button
                       onClick={() => setCurrentView(AppView.NOTES)}
-                      className="p-6 bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 hover:border-indigo-300 dark:hover:border-indigo-600 hover:shadow-lg transition-all group"
+                      className="flex items-center gap-4 p-4 bg-white rounded-xl border border-slate-200 hover:border-indigo-300 transition-all text-left group"
                     >
-                      <FileText className="w-8 h-8 text-indigo-600 dark:text-indigo-400 mb-3 group-hover:scale-110 transition-transform" />
-                      <h4 className="font-bold text-slate-900 dark:text-white">My Notes</h4>
-                      <p className="text-slate-600 dark:text-slate-400 text-sm mt-1">{taskCount} saved notes</p>
+                      <div className="w-10 h-10 bg-indigo-50 rounded-lg flex items-center justify-center group-hover:scale-110 transition-transform">
+                        <FileText className="w-5 h-5 text-indigo-600" />
+                      </div>
+                      <div>
+                        <h4 className="font-semibold text-slate-900 text-sm">Add Notes</h4>
+                        <p className="text-xs text-slate-500">Create study notes</p>
+                      </div>
                     </button>
 
                     <button
-                      onClick={() => setIsFocusMode(true)}
-                      className="p-6 bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 hover:border-indigo-300 dark:hover:border-indigo-600 hover:shadow-lg transition-all group"
+                      onClick={() => setCurrentView(AppView.SUBJECT)}
+                      className="flex items-center gap-4 p-4 bg-white rounded-xl border border-slate-200 hover:border-indigo-300 transition-all text-left group"
                     >
-                      <Hourglass className="w-8 h-8 text-indigo-600 dark:text-indigo-400 mb-3 group-hover:scale-110 transition-transform" />
-                      <h4 className="font-bold text-slate-900 dark:text-white">Focus Mode</h4>
-                      <p className="text-slate-600 dark:text-slate-400 text-sm mt-1">Deep work session</p>
-                    </button>
-
-                    <button
-                      onClick={() => setCurrentView(AppView.STATISTICS)}
-                      className="p-6 bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 hover:border-indigo-300 dark:hover:border-indigo-600 hover:shadow-lg transition-all group"
-                    >
-                      <Trophy className="w-8 h-8 text-indigo-600 dark:text-indigo-400 mb-3 group-hover:scale-110 transition-transform" />
-                      <h4 className="font-bold text-slate-900 dark:text-white">Statistics</h4>
-                      <p className="text-slate-600 dark:text-slate-400 text-sm mt-1">{streak} day streak!</p>
+                      <div className="w-10 h-10 bg-indigo-50 rounded-lg flex items-center justify-center group-hover:scale-110 transition-transform">
+                        <RefreshCw className="w-5 h-5 text-indigo-600" />
+                      </div>
+                      <div>
+                        <h4 className="font-semibold text-slate-900 text-sm">Revise Topic</h4>
+                        <p className="text-xs text-slate-500">Practice & review</p>
+                      </div>
                     </button>
                   </div>
                 </div>
+              )}
+
+              <div className="mt-10">
+                <h3 className="text-lg font-medium text-slate-800 mb-4">Tip of the Day</h3>
+                <div className="bg-gradient-to-r from-blue-600 to-indigo-600 rounded-xl p-8 text-white relative overflow-hidden shadow-lg shadow-indigo-200">
+                  <div className="relative z-10">
+                    <h4 className="text-xl font-semibold mb-2">
+                      {taskCount > 3 ? "High Workload Detected" : "Study Smart"}
+                    </h4>
+                    <p className="text-indigo-100 max-w-lg text-lg leading-relaxed">
+                      {getDailyTip()}
+                    </p>
+                  </div>
+                  <div className="absolute right-0 top-0 h-full w-1/3 bg-indigo-500/20 transform skew-x-12"></div>
+                  <div className="absolute -bottom-10 -left-10 w-40 h-40 bg-indigo-400/20 rounded-full blur-2xl"></div>
+                </div>
               </div>
+
+              {/* Help FAB matching reference */}
+              <button className="fixed bottom-8 right-8 w-14 h-14 bg-indigo-600 hover:bg-indigo-700 text-white rounded-full flex items-center justify-center shadow-lg hover:scale-110 active:scale-95 transition-all z-20">
+                <HelpCircle className="w-6 h-6" />
+              </button>
             </div>
           )}
 
@@ -380,8 +573,8 @@ const App: React.FC = () => {
             <div className="h-full flex items-center justify-center p-6">
               <div className="text-center">
                 <Trophy className="w-16 h-16 text-amber-500 mx-auto mb-4" />
-                <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-2">Statistics</h2>
-                <p className="text-slate-600 dark:text-slate-400">Coming soon!</p>
+                <h2 className="text-2xl font-semibold text-slate-900 mb-2">Statistics</h2>
+                <p className="text-slate-600">Coming soon!</p>
               </div>
             </div>
           )}
@@ -400,5 +593,11 @@ const App: React.FC = () => {
     </Router>
   )
 }
+
+const App: React.FC = () => {
+  return (
+    <AppContent />
+  );
+};
 
 export default App

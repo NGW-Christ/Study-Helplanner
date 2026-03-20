@@ -13,16 +13,18 @@ DROP TABLE IF EXISTS public.profiles CASCADE;
 -- Create profiles table
 CREATE TABLE public.profiles (
   id UUID REFERENCES auth.users(id) ON DELETE CASCADE PRIMARY KEY,
+  email TEXT NOT NULL,
   full_name TEXT,
-  cycle TEXT NOT NULL,
-  option_type TEXT NOT NULL,
+  cycle TEXT, -- Can be NULL until onboarding
+  option_type TEXT, -- Can be NULL until onboarding
   subjects TEXT[], -- Array of selected subjects
   plan_tier TEXT DEFAULT 'free', -- 'free' or 'premium'
   preferences JSONB DEFAULT '{"darkMode": false, "language": "en"}',
   daily_ai_count INTEGER DEFAULT 0,
   last_ai_usage_date DATE DEFAULT CURRENT_DATE,
   onboarding_completed BOOLEAN DEFAULT FALSE,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 
 -- Create notes table

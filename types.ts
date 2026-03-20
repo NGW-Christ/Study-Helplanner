@@ -14,22 +14,34 @@ export interface UserPreferences {
   language: 'en' | 'fr';
 }
 
-export interface UserProfile {
-  full_name: string;
+export interface User {
+  id: string;
+  email: string;
+  full_name?: string;
   cycle: Cycle;
   option: Option;
+  created_at?: string;
+}
+
+export interface UserProfile {
+  id: string;
+  email: string;
+  full_name: string;
+  cycle: Cycle | null;
+  option: Option | null;
   subjects: string[];
   plan_tier: 'free' | 'premium';
   preferences: UserPreferences;
   daily_ai_count: number;
   last_ai_usage_date: string;
-  onboarding_completed?: boolean;
+  onboarding_completed: boolean;
+  created_at?: string;
+  updated_at?: string;
 }
 
 export enum AppView {
   DASHBOARD = 'Dashboard',
   PLANNER = 'Planner',
-  PAPERS = 'Papers',
   NOTES = 'Notes',
   SUBJECT = 'Subject',
   STATISTICS = 'Statistics',

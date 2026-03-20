@@ -22,11 +22,11 @@ export function ThemedText({
   const getTypographyClasses = () => {
     switch (type) {
       case 'title':
-        return 'text-2xl font-bold leading-8'
+        return 'text-2xl font-semibold leading-8'
       case 'defaultSemiBold':
         return 'text-base font-semibold leading-6'
       case 'subtitle':
-        return 'text-xl font-bold leading-6'
+        return 'text-xl font-semibold leading-6'
       case 'link':
         return 'text-base leading-7 text-blue-500 hover:text-blue-600'
       default:
