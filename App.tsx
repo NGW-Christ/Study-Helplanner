@@ -1,3 +1,4 @@
+console.log('--- APP.TSX LOADING ---');
 import 'katex/dist/katex.min.css';
 import { Calendar, FileText, HelpCircle, Hourglass, Loader2, Menu, RefreshCw, Trophy, Zap } from 'lucide-react'
 import React, { useEffect, useState } from 'react'
