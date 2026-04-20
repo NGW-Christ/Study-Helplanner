@@ -1,4 +1,4 @@
-import { ArrowLeft, ArrowRight, CheckSquare, ChevronRight, FileText, Layers, Loader2, Plus, Search, Trash2, X, Zap } from 'lucide-react';
+import { ArrowLeft, ArrowRight, CheckSquare, ChevronRight, FileText, Layers, Loader2, Menu, Plus, Search, Trash2, X, Zap } from 'lucide-react';
 import * as pdfjsLib from 'pdfjs-dist';
 import React, { useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
@@ -19,9 +19,10 @@ interface Note {
 
 interface NotesViewProps {
  userId: string;
+ setIsMobileMenuOpen: (open: boolean) => void;
 }
 
-const NotesView: React.FC<NotesViewProps> = ({ userId }) => {
+const NotesView: React.FC<NotesViewProps> = ({ userId, setIsMobileMenuOpen }) => {
  const [notes, setNotes] = useState<Note[]>([]);
  const [loading, setLoading] = useState(true);
  const [uploading, setUploading] = useState(false);
@@ -41,22 +42,60 @@ const NotesView: React.FC<NotesViewProps> = ({ userId }) => {
  fetchNotes();
  }, [userId]);
 
- const fetchNotes = async () => {
- try {
- const { data, error } = await supabase
- .from('notes')
- .select('*')
- .eq('user_id', userId)
- .order('created_at', { ascending: false });
+ const fetchNotes = async (retryCount = 0) => {
+  // Reset loading state at the start
+  setLoading(true);
+  
+  try {
+   // Validate userId before making the request
+   if (!userId) {
+     console.warn('No userId provided for fetchNotes');
+     setNotes([]);
+     return;
+   }
 
- if (error) throw error;
- setNotes(data || []);
- } catch (error) {
- console.error('Error fetching notes:', error);
- } finally {
- setLoading(false);
- }
- };
+   const { data, error } = await supabase
+     .from('notes')
+     .select('*')
+     .eq('user_id', userId)
+     .order('created_at', { ascending: false });
+
+   if (error) {
+     console.error('Supabase error fetching notes:', error);
+     throw error;
+   }
+
+   // Always set notes, even if empty array
+   setNotes(data || []);
+   console.log('Successfully fetched notes:', data?.length || 0, 'items');
+   
+  } catch (error) {
+   console.error('Error fetching notes:', error);
+   
+   // Retry logic for network errors (max 2 retries)
+   if (retryCount < 2 && error instanceof Error && 
+       (error.message.includes('Failed to fetch') || 
+        error.message.includes('NetworkError') ||
+        error.message.includes('timeout'))) {
+     console.log(`Retrying fetchNotes (attempt ${retryCount + 1}/2)...`);
+     setTimeout(() => fetchNotes(retryCount + 1), 1000 * (retryCount + 1)); // Exponential backoff
+     return;
+   }
+   
+   // Set empty array on error to prevent infinite loading
+   setNotes([]);
+   
+   // Optionally show user-friendly error message
+   if (error instanceof Error) {
+     if (error.message.includes('Failed to fetch')) {
+       console.warn('Network error detected, check connection');
+     }
+   }
+  } finally {
+   // Always set loading to false, regardless of success or error
+   setLoading(false);
+  }
+  };
 
  const extractTextFromPdf = async (file: File): Promise<string> => {
  const arrayBuffer = await file.arrayBuffer();
@@ -200,11 +239,19 @@ const NotesView: React.FC<NotesViewProps> = ({ userId }) => {
  );
 
  return (
- <div className="h-full flex flex-col bg-light-background transition-colors relative">
+ <div className="h-full flex flex-col bg-light-background transition-colors relative pt-[env(safe-area-inset-top)]">
  <div className="p-6 border-b border-slate-200 bg-white shadow-sm flex justify-between items-center shrink-0">
+ <div className="flex items-center gap-4">
+ <button
+ onClick={() => setIsMobileMenuOpen(true)}
+ className="p-2 hover:bg-slate-100 rounded-lg lg:hidden"
+ >
+ <Menu className="w-6 h-6 text-slate-600" />
+ </button>
  <div>
  <h1 className="text-2xl font-semibold text-slate-900">My Notes</h1>
  <p className="text-slate-500 text-sm">Manage your summaries and imported documents</p>
+ </div>
  </div>
 
  <div className="flex items-center gap-3">

@@ -1,18 +1,18 @@
 console.log('--- APP.TSX LOADING ---');
 import 'katex/dist/katex.min.css';
-import { Calendar, FileText, HelpCircle, Hourglass, Loader2, Menu, RefreshCw, Trophy, Zap } from 'lucide-react'
-import React, { useEffect, useState } from 'react'
-import { BrowserRouter as Router } from 'react-router-dom'
-import Auth from './components/Auth'
-import FocusMode from './components/FocusMode'
-import NotesView from './components/NotesView'
-import Onboarding from './components/Onboarding'
-import PlannerView from './components/PlannerView'
-import Sidebar from './components/Sidebar'
-import SubjectView from './components/SubjectView'
-import { SUBJECTS_CONFIG } from './constants'
-import { supabase } from './lib/supabaseClient'
-import { AppView, Cycle, Option, UserProfile } from './types'
+import { Calendar, FileText, HelpCircle, Hourglass, Loader2, Menu, RefreshCw, Trophy, Zap } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { BrowserRouter as Router } from 'react-router-dom';
+import Auth from './components/Auth';
+import FocusMode from './components/FocusMode';
+import NotesView from './components/NotesView';
+import Onboarding from './components/Onboarding';
+import PlannerView from './components/PlannerView';
+import Sidebar from './components/Sidebar';
+import SubjectView from './components/SubjectView';
+import { SUBJECTS_CONFIG } from './constants';
+import { supabase } from './lib/supabaseClient';
+import { AppView, Cycle, Option, UserProfile } from './types';
 
 
 const AppContent: React.FC = () => {
@@ -240,11 +240,111 @@ const AppContent: React.FC = () => {
         .eq('user_id', userId)
         .eq('is_completed', false)
 
-      if (data) {
-        setTaskCount(data.length)
+      if (!error) {
+        setTaskCount(data?.length || 0)
       }
     } catch (error) {
       console.error('Error fetching task count', error)
+    }
+  }
+
+  const updateStreak = async (userId: string) => {
+    try {
+      const today = new Date().toISOString().split('T')[0];
+      
+      // Get current streak data
+      const { data: currentStreak, error: fetchError } = await supabase
+        .from('streaks')
+        .select('*')
+        .eq('user_id', userId)
+        .single();
+
+      if (fetchError && fetchError.code !== 'PGRST116') {
+        console.error('Error fetching current streak:', fetchError);
+        return;
+      }
+
+      let newStreak = 1;
+      let newLongest = 1;
+
+      if (currentStreak) {
+        const lastActivity = new Date(currentStreak.last_activity_date);
+        const todayDate = new Date(today);
+        const yesterdayDate = new Date(todayDate);
+        yesterdayDate.setDate(yesterdayDate.getDate() - 1);
+
+        if (lastActivity.toISOString().split('T')[0] === today) {
+          // Already updated today, don't increment
+          return;
+        } else if (lastActivity.toISOString().split('T')[0] === yesterdayDate.toISOString().split('T')[0]) {
+          // Consecutive day
+          newStreak = currentStreak.current_streak + 1;
+          newLongest = Math.max(newStreak, currentStreak.longest_streak);
+        }
+        // If gap > 1 day, reset to 1 (already set above)
+      }
+
+      // Update or insert streak
+      const { error: updateError } = await supabase
+        .from('streaks')
+        .upsert({
+          user_id: userId,
+          current_streak: newStreak,
+          longest_streak: newLongest,
+          last_activity_date: today,
+          updated_at: new Date().toISOString()
+        }, {
+          onConflict: 'user_id'
+        });
+
+      if (updateError) {
+        console.error('Error updating streak:', updateError);
+      } else {
+        console.log('Streak updated to:', newStreak);
+        setStreak(newStreak);
+      }
+    } catch (error) {
+      console.error('Error in updateStreak:', error);
+    }
+  }
+
+  const incrementAiUsage = async () => {
+    try {
+      if (!userProfile || !session) return;
+
+      const today = new Date().toISOString().split('T')[0];
+      const newDailyCount = userProfile.daily_ai_count + 1;
+
+      // Update profile with new AI count
+      const { error: updateError } = await supabase
+        .from('profiles')
+        .update({
+          daily_ai_count: newDailyCount,
+          last_ai_usage_date: today,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', session.user.id);
+
+      if (updateError) {
+        console.error('Error updating AI usage:', updateError);
+        return;
+      }
+
+      // Update local state
+      setUserProfile(prev => prev ? {
+        ...prev,
+        daily_ai_count: newDailyCount,
+        last_ai_usage_date: today
+      } : null);
+
+      // Check if user has reached 2 generations today and update streak
+      if (newDailyCount === 2) {
+        console.log('User reached 2 AI generations today, updating streak!');
+        await updateStreak(session.user.id);
+      }
+
+    } catch (error) {
+      console.error('Error in incrementAiUsage:', error);
     }
   }
 
@@ -384,7 +484,7 @@ const AppContent: React.FC = () => {
 
   return (
     <Router>
-      <div className="min-h-screen bg-light-background text-slate-900 font-sans flex">
+      <div className="min-h-screen bg-light-background text-slate-900 font-sans flex pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]">
         {/* Sidebar */}
         <Sidebar
           userId={session.user.id}
@@ -553,11 +653,15 @@ const AppContent: React.FC = () => {
               userId={session.user.id}
               userProfile={userProfile}
               onActivityRecorded={() => {}}
+              setIsMobileMenuOpen={setIsMobileMenuOpen}
             />
           )}
 
           {currentView === AppView.NOTES && (
-            <NotesView userId={session.user.id} />
+            <NotesView 
+              userId={session.user.id} 
+              setIsMobileMenuOpen={setIsMobileMenuOpen}
+            />
           )}
 
           {currentView === AppView.SUBJECT && selectedSubject && (
@@ -567,7 +671,8 @@ const AppContent: React.FC = () => {
               userProfile={userProfile}
               onFocusModeRequest={() => setIsFocusMode(true)}
               onActivityRecorded={() => {}}
-              onIncrementAiUsage={async () => {}}
+              onIncrementAiUsage={incrementAiUsage}
+              setIsMobileMenuOpen={setIsMobileMenuOpen}
             />
           )}
 
@@ -587,7 +692,7 @@ const AppContent: React.FC = () => {
           <FocusMode
             userId={session.user.id}
             onExit={() => setIsFocusMode(false)}
-            onSessionComplete={() => {}}
+            onSessionComplete={() => updateStreak(session.user.id)}
             initialDuration={25}
           />
         )}

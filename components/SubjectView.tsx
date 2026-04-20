@@ -6,6 +6,7 @@ import rehypeKatex from 'rehype-katex';
 import remarkMath from 'remark-math';
 import { SUBJECT_ACTIONS } from '../constants';
 import { supabase } from '../lib/supabaseClient';
+import { cacheService } from '../services/cacheService';
 import { generateStudyContent } from '../services/geminiService';
 import { SubjectAction, SubjectActionType, UserProfile } from '../types';
 
@@ -44,6 +45,7 @@ const SubjectView: React.FC<SubjectViewProps> = ({
  const [copied, setCopied] = useState(false);
  const [saving, setSaving] = useState(false);
  const [saved, setSaved] = useState(false);
+ const [savedResourceIds, setSavedResourceIds] = useState<Set<string>>(new Set());
  const [limitReached, setLimitReached] = useState(false);
  const [selectedImage, setSelectedImage] = useState<{ data: string; mimeType: string } | null>(null);
  const [isFromCommunity, setIsFromCommunity] = useState(false);
@@ -122,15 +124,32 @@ const SubjectView: React.FC<SubjectViewProps> = ({
  return () => clearInterval(interval);
  }, [retryTimer]);
 
- const fetchSubjectNotes = async () => {
- const { data } = await supabase
+ const fetchSubjectNotes = async (forceRefresh = false) => {
+  const cacheKey = cacheService.generateKey('notes', userId, subject);
+  
+  // Skip cache if force refresh or if we just saved/deleted
+  if (!forceRefresh) {
+    const cachedNotes = cacheService.get<any[]>(cacheKey);
+    
+    if (cachedNotes) {
+      console.log('Using cached notes for:', subject);
+      setAvailableNotes(cachedNotes);
+      return;
+    }
+  }
+
+  const { data } = await supabase
  .from('notes')
  .select('id, title, content, subject, created_at')
  .eq('user_id', userId)
  .or(`subject.eq.${subject},subject.eq.Imported`)
  .order('created_at', { ascending: false });
 
- if (data) setAvailableNotes(data);
+ if (data) {
+  setAvailableNotes(data);
+  // Reduce cache time to 30 seconds for better responsiveness
+  cacheService.set(cacheKey, data, 30 * 1000);
+ }
  };
 
  const handleActionClick = (action: SubjectAction) => {
@@ -138,6 +157,7 @@ const SubjectView: React.FC<SubjectViewProps> = ({
  setAiResponse(null);
  setInputText('');
  setSaved(false);
+ setSavedResourceIds(new Set());
  setSelectedNoteId(''); // Reset note selection
  setSelectedNote(null);
  setIsNewGeneration(false);
@@ -238,7 +258,7 @@ const SubjectView: React.FC<SubjectViewProps> = ({
  .eq('topic', normalizedTopic)
  .single();
 
- if (!error && data && data[actionType]) {
+ if (!error && data && data[actionType] && isValidContent(data[actionType])) {
  return data[actionType];
  }
  return null;
@@ -292,6 +312,7 @@ const SubjectView: React.FC<SubjectViewProps> = ({
  setLoading(true);
  setAiResponse(null);
  setSaved(false);
+ setSavedResourceIds(new Set());
  setIsFromCommunity(false);
 
  const topic = inputText.trim();
@@ -337,8 +358,8 @@ const SubjectView: React.FC<SubjectViewProps> = ({
  await processResponse(response);
 
  // Save to Community Library if successful and no specific context/image used
- if (selectedAction && !contextData && !selectedImage) {
- saveToCommunityLibrary(subject, topic, selectedAction.type, response);
+ if (selectedAction && !contextData && !selectedImage && isValidContent(response)) {
+   saveToCommunityLibrary(subject, topic, selectedAction.type, response);
  }
 
  setLoading(false);
@@ -419,27 +440,63 @@ const SubjectView: React.FC<SubjectViewProps> = ({
  const handleSaveToNotes = async (customContent?: string) => {
  const contentToSave = customContent || (aiResponse === "STRUCTURED_DATA" ? (flashcards.length > 0 ? JSON.stringify(flashcards) : JSON.stringify(quizItems)) : aiResponse);
  if (!contentToSave || !selectedAction) return;
+ 
+ // Create a unique key for this content to prevent duplicates
+ const contentKey = `${subject}-${selectedAction.type}-${inputText.trim()}`;
+ if (savedResourceIds.has(contentKey)) {
+  alert("This resource has already been saved!");
+  return;
+ }
+ 
  setSaving(true);
 
  const title = generateSmartTitle(inputText, selectedAction.label);
+ const newNote = {
+  id: Date.now().toString(), // Temporary ID
+  user_id: userId,
+  subject: subject,
+  title: title,
+  content: contentToSave,
+  created_at: new Date().toISOString()
+ };
+
+ // Optimistic update
+ setAvailableNotes(prev => [newNote, ...prev]);
+ 
+ // Clear cache immediately
+ const cacheKey = cacheService.generateKey('notes', userId, subject);
+ cacheService.invalidate(cacheKey);
 
  try {
- const { error } = await supabase.from('notes').insert({
- user_id: userId,
- subject: subject,
- title: title,
- content: contentToSave,
- created_at: new Date().toISOString()
- });
+ const { data, error } = await supabase.from('notes').insert({
+  user_id: userId,
+  subject: subject,
+  title: title,
+  content: contentToSave,
+  created_at: new Date().toISOString()
+ }).select().single();
 
  if (error) throw error;
  
+ // Update optimistic note with real ID
+ if (data) {
+  setAvailableNotes(prev => prev.map(note => 
+   note.id === newNote.id ? { ...note, id: data.id } : note
+  ));
+ }
+ 
  setSaved(true);
- setTimeout(() => setSaved(false), 3000);
- fetchSubjectNotes(); // Refresh list to include new note
+ setSavedResourceIds(prev => new Set([...prev, contentKey]));
+ // Don't reset saved state - keep it as permanent
+ 
+ // Force refresh to ensure data consistency
+ fetchSubjectNotes(true);
  } catch (error) {
  console.error("Error saving note:", error);
  alert("Failed to save note.");
+ 
+ // Rollback optimistic update immediately
+ setAvailableNotes(prev => prev.filter(note => note.id !== newNote.id));
  } finally {
  setSaving(false);
  }
@@ -447,10 +504,22 @@ const SubjectView: React.FC<SubjectViewProps> = ({
 
  const handleSaveFlashcardsToResources = async () => {
  if (flashcards.length === 0) return;
+ 
+ // Create a unique key for this content to prevent duplicates
+ const contentKey = `${subject}-${SubjectActionType.FLASHCARDS}-${inputText.trim()}`;
+ if (savedResourceIds.has(contentKey)) {
+  alert("These flashcards have already been saved!");
+  return;
+ }
+ 
  setSaving(true);
 
  const title = generateSmartTitle(inputText, 'Flashcards');
  const content = JSON.stringify(flashcards);
+
+ // Clear cache immediately
+ const cacheKey = cacheService.generateKey('notes', userId, subject);
+ cacheService.invalidate(cacheKey);
 
  const { error } = await supabase.from('notes').insert({
  user_id: userId,
@@ -464,18 +533,32 @@ const SubjectView: React.FC<SubjectViewProps> = ({
  alert("Failed to save flashcards.");
  } else {
  setSaved(true);
- setTimeout(() => setSaved(false), 3000);
- fetchSubjectNotes();
+ setSavedResourceIds(prev => new Set([...prev, contentKey]));
+ // Don't reset saved state - keep it as permanent
+ // Force refresh to ensure data consistency
+ fetchSubjectNotes(true);
  }
  setSaving(false);
  };
 
  const handleSaveQuizToResources = async () => {
  if (quizItems.length === 0) return;
+ 
+ // Create a unique key for this content to prevent duplicates
+ const contentKey = `${subject}-${SubjectActionType.QUIZ}-${inputText.trim()}`;
+ if (savedResourceIds.has(contentKey)) {
+  alert("This quiz has already been saved!");
+  return;
+ }
+ 
  setSaving(true);
 
  const title = generateSmartTitle(inputText, 'Quiz');
  const content = JSON.stringify(quizItems);
+
+ // Clear cache immediately
+ const cacheKey = cacheService.generateKey('notes', userId, subject);
+ cacheService.invalidate(cacheKey);
 
  const { error } = await supabase.from('notes').insert({
  user_id: userId,
@@ -489,8 +572,10 @@ const SubjectView: React.FC<SubjectViewProps> = ({
  alert("Failed to save quiz.");
  } else {
  setSaved(true);
- setTimeout(() => setSaved(false), 3000);
- fetchSubjectNotes();
+ setSavedResourceIds(prev => new Set([...prev, contentKey]));
+ // Don't reset saved state - keep it as permanent
+ // Force refresh to ensure data consistency
+ fetchSubjectNotes(true);
  }
  setSaving(false);
  };
@@ -500,6 +585,7 @@ const SubjectView: React.FC<SubjectViewProps> = ({
  setAiResponse(null);
  setInputText('');
  setSaved(false);
+ setSavedResourceIds(new Set());
  setFlashcards([]);
  setQuizItems([]);
  setSelectedImage(null);
@@ -510,6 +596,13 @@ const SubjectView: React.FC<SubjectViewProps> = ({
  e.stopPropagation();
  if (!confirm("Are you sure you want to delete this resource? This action cannot be undone.")) return;
 
+ // Optimistic update - remove immediately from UI
+ setAvailableNotes(prev => prev.filter(note => note.id !== resourceId));
+ 
+ // Clear cache immediately
+ const cacheKey = cacheService.generateKey('notes', userId, subject);
+ cacheService.invalidate(cacheKey);
+
  const { error } = await supabase
  .from('notes')
  .delete()
@@ -518,8 +611,11 @@ const SubjectView: React.FC<SubjectViewProps> = ({
  if (error) {
  console.error("Error deleting resource:", error);
  alert("Failed to delete resource.");
+ // Rollback - add the note back if deletion failed
+ fetchSubjectNotes(true);
  } else {
- fetchSubjectNotes();
+ // Force refresh to ensure data consistency
+ fetchSubjectNotes(true);
  }
  };
 
@@ -574,6 +670,10 @@ const SubjectView: React.FC<SubjectViewProps> = ({
  content = JSON.stringify(filled.map(c => ({ ...c, _manual: true })));
  }
 
+ // Clear cache immediately
+ const cacheKey = cacheService.generateKey('notes', userId, subject);
+ cacheService.invalidate(cacheKey);
+
  let error: any = null;
  if (editingResourceId) {
  // UPDATE existing resource
@@ -597,7 +697,8 @@ const SubjectView: React.FC<SubjectViewProps> = ({
  setManualContent('');
  setManualFlashcards([{ question: '', answer: '', explanation: '' }]);
  setManualType('note');
- fetchSubjectNotes();
+ // Force refresh to ensure data consistency
+ fetchSubjectNotes(true);
  }
  setSavingManual(false);
  };
@@ -1135,28 +1236,40 @@ const SubjectView: React.FC<SubjectViewProps> = ({
  </div>
  <div className="flex items-center justify-between sm:justify-end gap-3 shrink-0">
  <div className="flex items-center gap-2">
- {isNewGeneration && !saved && (
- <button
- onClick={() => {
- if (selectedNote.content.trim().startsWith('[') && isStructuredContent(selectedNote.content)) {
- if (selectedNote.title.toLowerCase().includes('quiz')) handleSaveQuizToResources();
- else handleSaveFlashcardsToResources();
- } else {
- handleSaveToNotes();
- }
- }}
- disabled={saving}
- className="flex items-center gap-1.5 sm:gap-2 bg-indigo-600 text-white px-3 sm:px-5 py-1.5 sm:py-2.5 rounded-lg sm:rounded-xl text-xs sm:text-sm font-semibold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-500/25 disabled:opacity-50 active:scale-95"
- >
- {saving ? <Loader2 className="w-3.5 h-3.5 sm:w-4 h-4 animate-spin" /> : <Save className="w-3.5 h-3.5 sm:w-4 h-4" />}
- <span className="truncate">Save Study Set</span>
- </button>
- )}
- {saved && (
- <div className="bg-emerald-500 text-white px-3 sm:px-5 py-1.5 sm:py-2.5 rounded-lg sm:rounded-xl font-semibold text-[10px] sm:text-sm flex items-center gap-1.5 sm:gap-2 shadow-lg shadow-emerald-500/20 animate-scale-in">
- <Check className="w-3.5 h-3.5 sm:w-4 h-4" /> <span className="truncate">Saved!</span>
- </div>
- )}
+ {isNewGeneration && (
+ (() => {
+  // Check if this specific resource is already saved
+  let currentActionType = SubjectActionType.SUMMARY;
+  if (selectedNote.content.trim().startsWith('[') && isStructuredContent(selectedNote.content)) {
+   if (selectedNote.title.toLowerCase().includes('quiz')) currentActionType = SubjectActionType.QUIZ;
+   else currentActionType = SubjectActionType.FLASHCARDS;
+  }
+  const contentKey = `${subject}-${currentActionType}-${inputText.trim()}`;
+  const isAlreadySaved = savedResourceIds.has(contentKey);
+  
+  return isAlreadySaved ? (
+   <div className="bg-emerald-500 text-white px-3 sm:px-5 py-1.5 sm:py-2.5 rounded-lg sm:rounded-xl font-semibold text-[10px] sm:text-sm flex items-center gap-1.5 sm:gap-2 shadow-lg shadow-emerald-500/20 animate-scale-in">
+    <Check className="w-3.5 h-3.5 sm:w-4 h-4" /> <span className="truncate">Saved!</span>
+   </div>
+  ) : (
+   <button
+    onClick={() => {
+     if (selectedNote.content.trim().startsWith('[') && isStructuredContent(selectedNote.content)) {
+      if (selectedNote.title.toLowerCase().includes('quiz')) handleSaveQuizToResources();
+      else handleSaveFlashcardsToResources();
+     } else {
+      handleSaveToNotes();
+     }
+    }}
+    disabled={saving}
+    className="flex items-center gap-1.5 sm:gap-2 bg-indigo-600 text-white px-3 sm:px-5 py-1.5 sm:py-2.5 rounded-lg sm:rounded-xl text-xs sm:text-sm font-semibold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-500/25 disabled:opacity-50 active:scale-95"
+   >
+    {saving ? <Loader2 className="w-3.5 h-3.5 sm:w-4 h-4 animate-spin" /> : <Save className="w-3.5 h-3.5 sm:w-4 h-4" />}
+    <span className="truncate">Save Study Set</span>
+   </button>
+  );
+ })()
+)}
  </div>
  <button
  onClick={() => {

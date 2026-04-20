@@ -1,5 +1,39 @@
 import { GoogleGenAI } from "@google/genai";
 import { Cycle, Option, SubjectActionType } from "../types";
+import { cacheService } from "./cacheService";
+
+// Performance monitoring helper
+const emitPerformanceEvent = (type: string, data?: any) => {
+  if (process.env.NODE_ENV === 'development') {
+    window.dispatchEvent(new CustomEvent('performance', {
+      detail: { type, data }
+    }));
+  }
+};
+
+// Helper function to check if response contains valid content (not errors)
+export const isValidContent = (response: string): boolean => {
+  if (!response || response.length < 20) return false;
+  
+  const errorIndicators = [
+    'ERROR',
+    'error',
+    'Error', 
+    'failed',
+    'Failed',
+    'API Key',
+    'rate limit',
+    'Rate Limit',
+    'An error occurred',
+    'Could not generate',
+    'Unable to generate',
+    'Please try again',
+    'API key is missing',
+    'Configuration error'
+  ];
+  
+  return !errorIndicators.some(indicator => response.includes(indicator));
+};
 
 // Define the expected response structures
 interface FlashcardResponse {
@@ -20,7 +54,7 @@ interface QuizResponse {
 }
 
 // Ensure the API key is available
-const apiKey = process.env.API_KEY || '';
+const apiKey = process.env.GEMINI_API_KEY || '';
 const ai = new GoogleGenAI({ apiKey });
 const modelId = 'gemini-2.5-flash';
 
@@ -36,6 +70,17 @@ export const generateStudyContent = async (
   if (!apiKey) {
     return "Error: API Key is missing. Please check your environment configuration.";
   }
+
+  // Check cache first
+  const cacheKey = cacheService.generateKey('study', subject, actionType, userInput.substring(0, 100), cycle, option);
+  const cachedResult = cacheService.get<string>(cacheKey);
+  if (cachedResult && !imageData) {
+    console.log('Cache hit for:', cacheKey);
+    emitPerformanceEvent('cache_hit');
+    return cachedResult;
+  }
+  
+  emitPerformanceEvent('cache_miss');
 
   let systemInstruction = `You are a strict, academic, and encouraging tutor for a student in Cameroon studying for ${cycle} (${option}). 
   Your goal is to help them understand ${subject}.
@@ -94,6 +139,7 @@ export const generateStudyContent = async (
   }
 
   // For non-flashcard actions, use the standard generation
+  const startTime = Date.now();
   try {
     const contents: any[] = [{ role: 'user', parts: [{ text: prompt }] }];
 
@@ -114,8 +160,23 @@ export const generateStudyContent = async (
       },
     });
 
-    return response.text || "I couldn't generate a response. Please try again.";
+    const duration = Date.now() - startTime;
+    emitPerformanceEvent('api_response', { duration });
+    emitPerformanceEvent('api_success');
+
+    const result = response.text || "I couldn't generate a response. Please try again.";
+    
+    // Cache the result (only if no image data and content is valid)
+    if (!imageData && isValidContent(result)) {
+      cacheService.set(cacheKey, result);
+    }
+    
+    return result;
   } catch (error: any) {
+    const duration = Date.now() - startTime;
+    emitPerformanceEvent('api_response', { duration });
+    emitPerformanceEvent('api_error', { error: error?.message });
+    
     console.error("Gemini API Error:", error);
 
     // Check for rate limit (429) or server overload (503)

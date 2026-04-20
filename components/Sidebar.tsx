@@ -6,14 +6,12 @@ import {
     CheckSquare,
     ChevronRight,
     Circle,
-    FileText,
     Globe,
     GraduationCap,
     HelpCircle,
     Layout,
     LogOut,
     Mail,
-    Moon,
     Plus,
     Settings,
     Shield,
@@ -28,7 +26,6 @@ import React, { useEffect, useState } from 'react';
 import { SUBJECTS_CONFIG } from '../constants';
 import { supabase } from '../lib/supabaseClient';
 import { AppView, Cycle, Option, StudyPlan, UserProfile } from '../types';
-import { Sun } from 'lucide-react';
 interface SidebarProps {
     userId: string;
     userEmail?: string;
@@ -246,7 +243,8 @@ const Sidebar: React.FC<SidebarProps> = ({
 
             {/* Sidebar Container */}
             <div className={`
-        fixed inset-y-0 left-0 z-40 w-72 bg-white  border-r border-slate-200  flex flex-col transition-all duration-300 ease-in-out md:translate-x-0 md:static md:shrink-0 shadow-2xl md:shadow-none
+        fixed inset-y-0 left-0 z-40 w-72 bg-white border-r border-slate-200 flex flex-col transition-all duration-300 ease-in-out md:translate-x-0 md:static md:shrink-0 shadow-2xl md:shadow-none
+        pt-[env(safe-area-inset-top)]
         ${isOpen ? 'translate-x-0' : '-translate-x-full'}
       `}>
                 {/* Header */}
@@ -339,7 +337,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                                         <div className="flex-1 min-w-0">
                                             <p className="text-[13px] font-medium text-slate-700  leading-tight truncate group-hover:text-slate-900  transition-colors">{task.task_description}</p>
                                             <p className={`text-[9px] font-semibold mt-1 uppercase tracking-tight ${new Date(task.planned_date) < new Date() ? 'text-red-500' : 'text-slate-400'}`}>
-                                                {new Date(task.planned_date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                                                {new Date(task.planned_date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} • {task.start_time} - {task.end_time}
                                             </p>
                                         </div>
                                     </div>

@@ -75,6 +75,8 @@ CREATE TABLE public.study_plans (
   subject TEXT NOT NULL,
   task_description TEXT NOT NULL,
   planned_date DATE NOT NULL,
+  start_time TIME NOT NULL DEFAULT '09:00:00',
+  end_time TIME NOT NULL DEFAULT '10:00:00',
   is_completed BOOLEAN DEFAULT FALSE,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
 );

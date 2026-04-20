@@ -87,5 +87,7 @@ export interface StudyPlan {
   subject: string;
   task_description: string;
   planned_date: string;
+  start_time: string;
+  end_time: string;
   is_completed: boolean;
 }
