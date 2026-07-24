@@ -9,6 +9,7 @@ import Onboarding from './components/Onboarding';
 import PlannerView from './components/PlannerView';
 import Sidebar from './components/Sidebar';
 import SubjectView from './components/SubjectView';
+import { ToastProvider } from './components/ToastProvider';
 import { SUBJECTS_CONFIG } from './constants';
 import { supabase } from './lib/supabaseClient';
 import { AppView, Cycle, Option, UserProfile } from './types';
@@ -691,7 +692,9 @@ const AppContent: React.FC = () => {
 
 const App: React.FC = () => {
   return (
-    <AppContent />
+    <ToastProvider>
+      <AppContent />
+    </ToastProvider>
   );
 };
 

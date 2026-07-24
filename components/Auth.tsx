@@ -1,8 +1,10 @@
 import { ArrowRight, BookOpen, Eye, EyeOff, Loader2, Lock, Mail, User } from 'lucide-react';
 import React, { useState } from 'react';
 import { supabase } from '../lib/supabaseClient';
+import { useToast } from './ToastProvider';
 
 const Auth: React.FC = () => {
+  const { showToast } = useToast();
   const [loading, setLoading] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -66,7 +68,7 @@ const Auth: React.FC = () => {
           },
         });
         if (error) throw error;
-        alert('Registration Successful. Please check your email to verify your account.');
+        showToast('Registration Successful. Please check your email to verify your account.', 'success');
       } else {
         // signIn function logic from reference
         const { error } = await supabase.auth.signInWithPassword({

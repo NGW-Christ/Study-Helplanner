@@ -26,6 +26,7 @@ import React, { useEffect, useState } from 'react';
 import { SUBJECTS_CONFIG } from '../constants';
 import { supabase } from '../lib/supabaseClient';
 import { AppView, Cycle, Option, StudyPlan, UserProfile } from '../types';
+import { useToast } from './ToastProvider';
 interface SidebarProps {
     userId: string;
     userEmail?: string;
@@ -57,6 +58,7 @@ const Sidebar: React.FC<SidebarProps> = ({
     isOpen,
     onClose
 }) => {
+    const { showToast } = useToast();
     // Use userProfile.subjects for the list, fallback to empty array if something goes wrong
     const subjects = userProfile.subjects || [];
 
@@ -197,7 +199,7 @@ const Sidebar: React.FC<SidebarProps> = ({
     const handleChangePassword = async () => {
         if (userEmail) {
             await supabase.auth.resetPasswordForEmail(userEmail);
-            alert(`Password reset link sent to ${userEmail}`);
+            showToast(`Password reset link sent to ${userEmail}`, 'success');
         }
     };
 
@@ -214,7 +216,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                 onLogout();
             } catch (error) {
                 console.error('Error deleting account:', error);
-                alert('Failed to delete account. Please try again.');
+                showToast('Failed to delete account. Please try again.', 'error');
             }
         }
     };

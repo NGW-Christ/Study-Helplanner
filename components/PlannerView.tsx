@@ -3,6 +3,7 @@ import React, { useEffect, useState } from 'react';
 import { SUBJECTS_CONFIG } from '../constants';
 import { supabase } from '../lib/supabaseClient';
 import { StudyPlan, UserProfile } from '../types';
+import { useToast } from './ToastProvider';
 
 interface PlannerViewProps {
   userId: string;
@@ -12,6 +13,7 @@ interface PlannerViewProps {
 }
 
 const PlannerView: React.FC<PlannerViewProps> = ({ userId, userProfile, onActivityRecorded, setIsMobileMenuOpen }) => {
+ const { showToast } = useToast();
  const [plans, setPlans] = useState<StudyPlan[]>([]);
  const [currentWeekStart, setCurrentWeekStart] = useState(new Date());
  const [loading, setLoading] = useState(true);
@@ -72,7 +74,7 @@ const PlannerView: React.FC<PlannerViewProps> = ({ userId, userProfile, onActivi
 
     if (error) {
       console.error('Supabase error:', error);
-      alert(`Error saving schedule: ${error.message}`);
+      showToast(`Error saving schedule: ${error.message}`, 'error');
       return;
     }
 
@@ -86,11 +88,11 @@ const PlannerView: React.FC<PlannerViewProps> = ({ userId, userProfile, onActivi
       setIsExam(false);
     } else {
       console.error('No data returned from insert');
-      alert('Error: No data returned when saving schedule');
+      showToast('Error: No data returned when saving schedule', 'error');
     }
   } catch (err) {
     console.error('Unexpected error in handleAddPlan:', err);
-    alert('Unexpected error occurred while saving schedule');
+    showToast('Unexpected error occurred while saving schedule', 'error');
   }
  };
 
