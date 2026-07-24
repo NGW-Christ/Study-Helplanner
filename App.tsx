@@ -14,6 +14,18 @@ import { SUBJECTS_CONFIG } from './constants';
 import { supabase } from './lib/supabaseClient';
 import { AppView, Cycle, Option, UserProfile } from './types';
 
+// SUBJECTS_CONFIG is keyed by the real Cycle/Option enum values (e.g. 'O Level (Form 5)',
+// 'Science'). Profile data can end up with values that don't match any valid key — a past
+// bug in Auth.tsx's signup call stored placeholder strings ('O_LEVEL' / 'SCIENCE') instead —
+// so these helpers guard every SUBJECTS_CONFIG lookup instead of indexing it directly.
+const isValidCycleOption = (cycle: string | null | undefined, option: string | null | undefined): boolean => {
+  return !!(cycle && option && SUBJECTS_CONFIG[cycle as Cycle]?.[option as Option]);
+};
+
+const getSubjectsForProfile = (cycle: string | null | undefined, option: string | null | undefined): string[] => {
+  if (!isValidCycleOption(cycle, option)) return [];
+  return SUBJECTS_CONFIG[cycle as Cycle][option as Option];
+};
 
 const AppContent: React.FC = () => {
   const [session, setSession] = useState<any>(null)
@@ -90,10 +102,13 @@ const AppContent: React.FC = () => {
     };
   }, []);
 
-  // Existing users already have cycle/option set but may not have onboarding_completed
-  // flagged yet — mark it complete so they aren't sent back through Onboarding.
+  // Existing users already have a valid cycle/option set but may not have
+  // onboarding_completed flagged yet — mark it complete so they aren't sent
+  // back through Onboarding. Uses isValidCycleOption (not just truthiness) so
+  // a profile with bad/legacy cycle-option data is routed to Onboarding to be
+  // fixed, instead of being marked complete and crashing on the dashboard.
   useEffect(() => {
-    if (userProfile && !userProfile.onboarding_completed && userProfile.cycle && userProfile.option) {
+    if (userProfile && !userProfile.onboarding_completed && isValidCycleOption(userProfile.cycle, userProfile.option)) {
       setUserProfile({ ...userProfile, onboarding_completed: true });
     }
   }, [userProfile]);
@@ -135,12 +150,12 @@ const AppContent: React.FC = () => {
             full_name: newProfile.full_name || 'Student',
             cycle: newProfile.cycle as Cycle,
             option: newProfile.option_type as Option,
-            subjects: newProfile.subjects || (newProfile.cycle && newProfile.option_type ? SUBJECTS_CONFIG[newProfile.cycle as Cycle][newProfile.option_type as Option] : []),
+            subjects: newProfile.subjects?.length ? newProfile.subjects : getSubjectsForProfile(newProfile.cycle, newProfile.option_type),
             plan_tier: newProfile.plan_tier || 'free',
             preferences: newProfile.preferences || { darkMode: false, language: 'en' },
             daily_ai_count: newProfile.daily_ai_count || 0,
             last_ai_usage_date: newProfile.last_ai_usage_date || new Date().toISOString().split('T')[0],
-            onboarding_completed: newProfile.onboarding_completed || false
+            onboarding_completed: isValidCycleOption(newProfile.cycle, newProfile.option_type) && (newProfile.onboarding_completed || false)
           });
         }
         return;
@@ -199,12 +214,16 @@ const AppContent: React.FC = () => {
             full_name: data.full_name || 'Student',
             cycle: data.cycle as Cycle,
             option: data.option_type as Option,
-            subjects: data.subjects || (data.cycle && data.option_type ? SUBJECTS_CONFIG[data.cycle as Cycle][data.option_type as Option] : []),
+            subjects: data.subjects?.length ? data.subjects : getSubjectsForProfile(data.cycle, data.option_type),
             plan_tier: data.plan_tier || 'free',
             preferences: data.preferences || { darkMode: false, language: 'en' },
             daily_ai_count: dailyCount || 0,
             last_ai_usage_date: data.last_ai_usage_date || today,
-            onboarding_completed: data.onboarding_completed || false
+            // If cycle/option don't map to a valid SUBJECTS_CONFIG entry (e.g. a profile
+            // corrupted by a past bug), treat onboarding as incomplete so the user is
+            // routed back through Onboarding to re-select valid values instead of the
+            // app crashing on every future login.
+            onboarding_completed: isValidCycleOption(data.cycle, data.option_type) && (data.onboarding_completed || false)
         })
       }
     } catch (error) {
@@ -391,10 +410,28 @@ const AppContent: React.FC = () => {
     return <Auth />
   }
 
+  if (!userProfile) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-900">
+        <div className="flex flex-col items-center gap-4 text-center px-6">
+          <p className="text-slate-600">We couldn't load your profile. Please check your connection and try again.</p>
+          <button
+            onClick={() => fetchProfile(session.user.id)}
+            className="px-4 py-2 bg-indigo-600 text-white rounded-xl font-semibold text-sm hover:bg-indigo-700 transition-colors"
+          >
+            Retry
+          </button>
+        </div>
+      </div>
+    )
+  }
+
   if (userProfile && !userProfile.onboarding_completed) {
-    // Skip onboarding if cycle and option are already set (existing users) —
-    // the useEffect above will flip onboarding_completed on the next render.
-    if (userProfile.cycle && userProfile.option) {
+    // Skip onboarding if cycle and option are already set to a valid combination
+    // (existing users) — the useEffect above will flip onboarding_completed on
+    // the next render. A profile with invalid/legacy cycle-option data falls
+    // through to Onboarding instead, so the user can fix it themselves.
+    if (isValidCycleOption(userProfile.cycle, userProfile.option)) {
       return null;
     }
 
@@ -437,7 +474,7 @@ const AppContent: React.FC = () => {
             ...userProfile!,
             cycle: updatedProfile.cycle as Cycle,
             option: updatedProfile.option_type as Option,
-            subjects: updatedProfile.subjects || SUBJECTS_CONFIG[updatedProfile.cycle as Cycle][updatedProfile.option_type as Option],
+            subjects: updatedProfile.subjects?.length ? updatedProfile.subjects : getSubjectsForProfile(updatedProfile.cycle, updatedProfile.option_type),
             onboarding_completed: true
           });
         }

@@ -55,15 +55,19 @@ const Auth: React.FC = () => {
 
     try {
       if (isSignUp) {
-        // signUp function logic from reference
+        // Cycle/option are intentionally left unset here — the user picks them
+        // in the Onboarding flow after their first sign-in. Previously this set
+        // placeholder strings ('O_LEVEL' / 'SCIENCE') that didn't match any real
+        // Cycle/Option enum value, which permanently broke every new account:
+        // fetchProfile would treat onboarding as already complete, then crash
+        // indexing SUBJECTS_CONFIG with the bogus keys, leaving the profile
+        // fetch silently failing on every future login.
         const { error } = await supabase.auth.signUp({
           email,
           password,
           options: {
             data: {
               full_name: fullName,
-              cycle: 'O_LEVEL', // Default values from reference
-              option: 'SCIENCE',
             },
           },
         });

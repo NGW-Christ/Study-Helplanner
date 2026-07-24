@@ -27,7 +27,7 @@ const PlannerView: React.FC<PlannerViewProps> = ({ userId, userProfile, onActivi
  const [newEndTime, setNewEndTime] = useState('10:00');
  const [isExam, setIsExam] = useState(false);
 
- const subjects = SUBJECTS_CONFIG[userProfile.cycle][userProfile.option];
+ const subjects = SUBJECTS_CONFIG[userProfile.cycle]?.[userProfile.option] || [];
 
  useEffect(() => {
  // Align currentWeekStart to Monday
