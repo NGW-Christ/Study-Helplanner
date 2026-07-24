@@ -1,5 +1,6 @@
 import { AlertTriangle, ArrowLeft, ArrowRight, Book, BookOpen, Calendar, Check, CheckSquare, FileText, HelpCircle, Layers, Loader2, Pencil, Plus, RotateCcw, Save, Trash2, X, Zap } from 'lucide-react';
 import * as pdfjsLib from 'pdfjs-dist';
+import type { TextItem } from 'pdfjs-dist/types/src/display/api';
 import React, { useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import rehypeKatex from 'rehype-katex';
@@ -7,8 +8,9 @@ import remarkMath from 'remark-math';
 import { SUBJECT_ACTIONS } from '../constants';
 import { supabase } from '../lib/supabaseClient';
 import { cacheService } from '../services/cacheService';
-import { generateStudyContent } from '../services/geminiService';
-import { SubjectAction, SubjectActionType, UserProfile } from '../types';
+import { generateStudyContent, isValidContent } from '../services/geminiService';
+import { FlashcardData, SubjectAction, SubjectActionType, UserProfile } from '../types';
+import { useToast } from './ToastProvider';
 
 // Set worker source for PDF.js
 pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://esm.sh/pdfjs-dist@4.0.379/build/pdf.worker.mjs';
@@ -20,6 +22,7 @@ interface SubjectViewProps {
  onFocusModeRequest: () => void;
  onActivityRecorded: () => void;
  onIncrementAiUsage: () => Promise<void>;
+ setIsMobileMenuOpen?: (open: boolean) => void;
 }
 
 interface Note {
@@ -37,6 +40,7 @@ const IconMap: Record<string, React.FC<any>> = {
 const SubjectView: React.FC<SubjectViewProps> = ({
  userId, subject, userProfile, onFocusModeRequest, onActivityRecorded, onIncrementAiUsage
 }) => {
+ const { showToast } = useToast();
  const [selectedAction, setSelectedAction] = useState<SubjectAction | null>(null);
  const [inputText, setInputText] = useState('');
  const [loading, setLoading] = useState(false);
@@ -132,7 +136,6 @@ const SubjectView: React.FC<SubjectViewProps> = ({
     const cachedNotes = cacheService.get<any[]>(cacheKey);
     
     if (cachedNotes) {
-      console.log('Using cached notes for:', subject);
       setAvailableNotes(cachedNotes);
       return;
     }
@@ -171,7 +174,7 @@ const SubjectView: React.FC<SubjectViewProps> = ({
  for (let i = 1; i <= pdf.numPages; i++) {
  const page = await pdf.getPage(i);
  const textContent = await page.getTextContent();
- const pageText = textContent.items.map((item: any) => item.str).join(' ');
+ const pageText = textContent.items.map((item) => ('str' in item ? (item as TextItem).str : '')).join(' ');
  fullText += `\n\n--- Page ${i} ---\n\n` + pageText;
  }
 
@@ -217,7 +220,7 @@ const SubjectView: React.FC<SubjectViewProps> = ({
  }
  } catch (error) {
  console.error("Error reading file:", error);
- alert("Failed to read file.");
+ showToast("Failed to read file.", 'error');
  } finally {
  setFileProcessing(false);
  if (event.target) event.target.value = '';
@@ -302,72 +305,84 @@ const SubjectView: React.FC<SubjectViewProps> = ({
  return /^\[\s*\{[\s\S]*\}\s*\]/.test(trimmed);
  };
 
- const handleSubmit = async () => {
- if (limitReached) {
- alert("You have reached your daily AI limit. Upgrade to Premium for more generations or come back tomorrow.");
- return;
- }
+  const handleSubmit = async () => {
+    if (limitReached) {
+      showToast("You have reached your daily AI limit. Upgrade to Premium for more generations or come back tomorrow.", 'info');
+      return;
+    }
 
- if (!inputText.trim()) return;
- setLoading(true);
- setAiResponse(null);
- setSaved(false);
- setSavedResourceIds(new Set());
- setIsFromCommunity(false);
+    if (!inputText.trim()) return;
+    setLoading(true);
+    setAiResponse(null);
+    setSaved(false);
+    setSavedResourceIds(new Set());
+    setIsFromCommunity(false);
 
- const topic = inputText.trim();
+    const topic = inputText.trim();
 
- // 1. Try Community Library first (only if no image/context is provided)
- let contextData = undefined;
- if ((selectedAction?.type === SubjectActionType.REVISE ||
- selectedAction?.type === SubjectActionType.FLASHCARDS ||
- selectedAction?.type === SubjectActionType.QUIZ ||
- selectedAction?.type === SubjectActionType.HINTS) && selectedNoteId) {
- const note = availableNotes.find(n => n.id === selectedNoteId);
- if (note) contextData = note.content;
- }
+    // 1. Try Community Library first (only if no image/context is provided)
+    let contextData = undefined;
+    if ((selectedAction?.type === SubjectActionType.REVISE ||
+      selectedAction?.type === SubjectActionType.FLASHCARDS ||
+      selectedAction?.type === SubjectActionType.QUIZ ||
+      selectedAction?.type === SubjectActionType.HINTS) && selectedNoteId) {
+      const note = availableNotes.find(n => n.id === selectedNoteId);
+      if (note) contextData = note.content;
+    }
 
- if (!contextData && !selectedImage && selectedAction) {
- const cached = await lookupCommunityResource(subject, topic, selectedAction.type);
- if (cached) {
- await processResponse(cached);
- setIsFromCommunity(true);
- setLoading(false);
- onActivityRecorded();
- return;
- }
- }
+    if (!contextData && !selectedImage && selectedAction) {
+      const cached = await lookupCommunityResource(subject, topic, selectedAction.type);
+      if (cached) {
+        await processResponse(cached);
+        setIsFromCommunity(true);
+        setLoading(false);
+        onActivityRecorded();
+        return;
+      }
+    }
 
- const response = await generateStudyContent(
- subject,
- selectedAction!.type,
- topic,
- userProfile.cycle,
- userProfile.option,
- contextData,
- selectedImage
- );
+    const response = await generateStudyContent(
+      subject,
+      selectedAction!.type,
+      topic,
+      userProfile.cycle,
+      userProfile.option,
+      contextData,
+      selectedImage
+    );
 
- if (response === "ERROR_RATE_LIMIT") {
- setRpmError(true);
- setRetryTimer(10);
- setLoading(false);
- return;
- }
+    if (response === "ERROR_RATE_LIMIT") {
+      setRpmError(true);
+      setRetryTimer(10);
+      setLoading(false);
+      return;
+    }
 
- await processResponse(response);
+    if (response === "ERROR_GENERATION_FAILED") {
+      showToast("AI generation failed or produced invalid content. Please try a different prompt.", 'error');
+      setLoading(false);
+      return;
+    }
 
- // Save to Community Library if successful and no specific context/image used
- if (selectedAction && !contextData && !selectedImage && isValidContent(response)) {
-   saveToCommunityLibrary(subject, topic, selectedAction.type, response);
- }
+    if (!isValidContent(response)) {
+      showToast("AI generated invalid content. Please try again.", 'error');
+      setLoading(false);
+      return;
+    }
 
- setLoading(false);
+    await processResponse(response);
 
- // Record Activity and Increment Usage
- onActivityRecorded();
- await onIncrementAiUsage();
- };
+    // Save to Community Library if successful and no specific context/image used
+    if (selectedAction && !contextData && !selectedImage) {
+      saveToCommunityLibrary(subject, topic, selectedAction.type, response);
+    }
+
+    setLoading(false);
+
+    // Record Activity and Increment Usage
+    onActivityRecorded();
+    await onIncrementAiUsage();
+  };
 
  const processResponse = async (response: string) => {
  if (selectedAction?.type === SubjectActionType.FLASHCARDS || selectedAction?.type === SubjectActionType.QUIZ) {
@@ -437,14 +452,19 @@ const SubjectView: React.FC<SubjectViewProps> = ({
  }
  };
 
- const handleSaveToNotes = async (customContent?: string) => {
- const contentToSave = customContent || (aiResponse === "STRUCTURED_DATA" ? (flashcards.length > 0 ? JSON.stringify(flashcards) : JSON.stringify(quizItems)) : aiResponse);
- if (!contentToSave || !selectedAction) return;
- 
- // Create a unique key for this content to prevent duplicates
- const contentKey = `${subject}-${selectedAction.type}-${inputText.trim()}`;
+  const handleSaveToNotes = async (customContent?: string) => {
+    const contentToSave = customContent || (aiResponse === "STRUCTURED_DATA" ? (flashcards.length > 0 ? JSON.stringify(flashcards) : JSON.stringify(quizItems)) : aiResponse);
+    if (!contentToSave || !selectedAction) return;
+
+    if (!isValidContent(contentToSave)) {
+      showToast("Cannot save invalid content.", 'error');
+      return;
+    }
+    
+    // Create a unique key for this content to prevent duplicates
+    const contentKey = `${subject}-${selectedAction.type}-${inputText.trim()}`;
  if (savedResourceIds.has(contentKey)) {
-  alert("This resource has already been saved!");
+  showToast("This resource has already been saved!", 'info');
   return;
  }
  
@@ -493,7 +513,7 @@ const SubjectView: React.FC<SubjectViewProps> = ({
  fetchSubjectNotes(true);
  } catch (error) {
  console.error("Error saving note:", error);
- alert("Failed to save note.");
+ showToast("Failed to save note.", 'error');
  
  // Rollback optimistic update immediately
  setAvailableNotes(prev => prev.filter(note => note.id !== newNote.id));
@@ -508,7 +528,7 @@ const SubjectView: React.FC<SubjectViewProps> = ({
  // Create a unique key for this content to prevent duplicates
  const contentKey = `${subject}-${SubjectActionType.FLASHCARDS}-${inputText.trim()}`;
  if (savedResourceIds.has(contentKey)) {
-  alert("These flashcards have already been saved!");
+  showToast("These flashcards have already been saved!", 'info');
   return;
  }
  
@@ -530,7 +550,7 @@ const SubjectView: React.FC<SubjectViewProps> = ({
 
  if (error) {
  console.error("Error saving flashcards:", error);
- alert("Failed to save flashcards.");
+ showToast("Failed to save flashcards.", 'error');
  } else {
  setSaved(true);
  setSavedResourceIds(prev => new Set([...prev, contentKey]));
@@ -547,7 +567,7 @@ const SubjectView: React.FC<SubjectViewProps> = ({
  // Create a unique key for this content to prevent duplicates
  const contentKey = `${subject}-${SubjectActionType.QUIZ}-${inputText.trim()}`;
  if (savedResourceIds.has(contentKey)) {
-  alert("This quiz has already been saved!");
+  showToast("This quiz has already been saved!", 'info');
   return;
  }
  
@@ -569,7 +589,7 @@ const SubjectView: React.FC<SubjectViewProps> = ({
 
  if (error) {
  console.error("Error saving quiz:", error);
- alert("Failed to save quiz.");
+ showToast("Failed to save quiz.", 'error');
  } else {
  setSaved(true);
  setSavedResourceIds(prev => new Set([...prev, contentKey]));
@@ -610,7 +630,7 @@ const SubjectView: React.FC<SubjectViewProps> = ({
 
  if (error) {
  console.error("Error deleting resource:", error);
- alert("Failed to delete resource.");
+ showToast("Failed to delete resource.", 'error');
  // Rollback - add the note back if deletion failed
  fetchSubjectNotes(true);
  } else {
@@ -656,16 +676,16 @@ const SubjectView: React.FC<SubjectViewProps> = ({
  };
 
  const handleSaveManualResource = async () => {
- if (!manualTitle.trim()) { alert('Please add a title.'); return; }
+ if (!manualTitle.trim()) { showToast('Please add a title.', 'info'); return; }
  setSavingManual(true);
  let content = '';
  const MANUAL_MARKER = '<!-- shp_manual -->';
  if (manualType === 'note') {
- if (!manualContent.trim()) { alert('Please add some content.'); setSavingManual(false); return; }
+ if (!manualContent.trim()) { showToast('Please add some content.', 'info'); setSavingManual(false); return; }
  content = `${MANUAL_MARKER}\n${manualContent.trim()}`;
  } else {
  const filled = manualFlashcards.filter(c => c.question.trim() && c.answer.trim());
- if (filled.length === 0) { alert('Please add at least one complete flashcard.'); setSavingManual(false); return; }
+ if (filled.length === 0) { showToast('Please add at least one complete flashcard.', 'info'); setSavingManual(false); return; }
  // Tag each card with _manual:true so the resource is identifiable
  content = JSON.stringify(filled.map(c => ({ ...c, _manual: true })));
  }
@@ -674,7 +694,7 @@ const SubjectView: React.FC<SubjectViewProps> = ({
  const cacheKey = cacheService.generateKey('notes', userId, subject);
  cacheService.invalidate(cacheKey);
 
- let error: any = null;
+ let error: unknown = null;
  if (editingResourceId) {
  // UPDATE existing resource
  const { error: updateError } = await supabase.from('notes')
@@ -689,7 +709,7 @@ const SubjectView: React.FC<SubjectViewProps> = ({
  error = insertError;
  }
 
- if (error) { alert('Failed to save resource.'); }
+ if (error) { showToast('Failed to save resource.', 'error'); }
  else {
  setIsCreatingManual(false);
  setEditingResourceId(null);
@@ -713,7 +733,7 @@ const SubjectView: React.FC<SubjectViewProps> = ({
  try {
  const jsonMatch = note.content.match(/\[\s*\{[\s\S]*\}\s*\]/);
  const data = JSON.parse(jsonMatch ? jsonMatch[0] : note.content);
- setManualFlashcards(data.map((c: any) => ({
+ setManualFlashcards(data.map((c: Partial<FlashcardData>) => ({
  question: c.question || '',
  answer: c.answer || '',
  explanation: c.explanation || ''
@@ -984,7 +1004,7 @@ const SubjectView: React.FC<SubjectViewProps> = ({
  setSaved(true);
  }
  } catch (e) {
- alert("Failed to load interactive resource.");
+ showToast("Failed to load interactive resource.", 'error');
  return;
  }
  } else {

@@ -1,10 +1,12 @@
 import { ArrowLeft, ArrowRight, CheckSquare, ChevronRight, FileText, Layers, Loader2, Menu, Plus, Search, Trash2, X, Zap } from 'lucide-react';
 import * as pdfjsLib from 'pdfjs-dist';
+import type { TextItem } from 'pdfjs-dist/types/src/display/api';
 import React, { useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import rehypeKatex from 'rehype-katex';
 import remarkMath from 'remark-math';
 import { supabase } from '../lib/supabaseClient';
+import { useToast } from './ToastProvider';
 
 // Set worker source for PDF.js
 pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://esm.sh/pdfjs-dist@4.0.379/build/pdf.worker.mjs';
@@ -23,6 +25,7 @@ interface NotesViewProps {
 }
 
 const NotesView: React.FC<NotesViewProps> = ({ userId, setIsMobileMenuOpen }) => {
+ const { showToast } = useToast();
  const [notes, setNotes] = useState<Note[]>([]);
  const [loading, setLoading] = useState(true);
  const [uploading, setUploading] = useState(false);
@@ -51,6 +54,7 @@ const NotesView: React.FC<NotesViewProps> = ({ userId, setIsMobileMenuOpen }) =>
    if (!userId) {
      console.warn('No userId provided for fetchNotes');
      setNotes([]);
+     setLoading(false);
      return;
    }
 
@@ -67,8 +71,7 @@ const NotesView: React.FC<NotesViewProps> = ({ userId, setIsMobileMenuOpen }) =>
 
    // Always set notes, even if empty array
    setNotes(data || []);
-   console.log('Successfully fetched notes:', data?.length || 0, 'items');
-   
+
   } catch (error) {
    console.error('Error fetching notes:', error);
    
@@ -77,7 +80,8 @@ const NotesView: React.FC<NotesViewProps> = ({ userId, setIsMobileMenuOpen }) =>
        (error.message.includes('Failed to fetch') || 
         error.message.includes('NetworkError') ||
         error.message.includes('timeout'))) {
-     console.log(`Retrying fetchNotes (attempt ${retryCount + 1}/2)...`);
+     // Set loading to false before retry, then retry will set it to true again
+     setLoading(false);
      setTimeout(() => fetchNotes(retryCount + 1), 1000 * (retryCount + 1)); // Exponential backoff
      return;
    }
@@ -105,7 +109,7 @@ const NotesView: React.FC<NotesViewProps> = ({ userId, setIsMobileMenuOpen }) =>
  for (let i = 1; i <= pdf.numPages; i++) {
  const page = await pdf.getPage(i);
  const textContent = await page.getTextContent();
- const pageText = textContent.items.map((item: any) => item.str).join(' ');
+ const pageText = textContent.items.map((item) => ('str' in item ? (item as TextItem).str : '')).join(' ');
  fullText += `\n\n--- Page ${i} ---\n\n` + pageText;
  }
 
@@ -139,7 +143,7 @@ const NotesView: React.FC<NotesViewProps> = ({ userId, setIsMobileMenuOpen }) =>
  await fetchNotes();
  } catch (error) {
  console.error('Error uploading note:', error);
- alert('Failed to import note. Please check the file format.');
+ showToast('Failed to import note. Please check the file format.', 'error');
  } finally {
  setUploading(false);
  if (fileInputRef.current) fileInputRef.current.value = '';

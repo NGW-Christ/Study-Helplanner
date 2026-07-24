@@ -3,7 +3,7 @@ import { Cycle, Option, SubjectActionType } from "../types";
 import { cacheService } from "./cacheService";
 
 // Performance monitoring helper
-const emitPerformanceEvent = (type: string, data?: any) => {
+const emitPerformanceEvent = (type: string, data?: { duration?: number; error?: string }) => {
   if (process.env.NODE_ENV === 'development') {
     window.dispatchEvent(new CustomEvent('performance', {
       detail: { type, data }
@@ -140,6 +140,9 @@ export const generateStudyContent = async (
 
   // For non-flashcard actions, use the standard generation
   const startTime = Date.now();
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+
   try {
     const contents: any[] = [{ role: 'user', parts: [{ text: prompt }] }];
 
@@ -160,12 +163,17 @@ export const generateStudyContent = async (
       },
     });
 
+    clearTimeout(timeoutId);
     const duration = Date.now() - startTime;
     emitPerformanceEvent('api_response', { duration });
     emitPerformanceEvent('api_success');
 
     const result = response.text || "I couldn't generate a response. Please try again.";
     
+    if (!isValidContent(result)) {
+      return "ERROR_GENERATION_FAILED";
+    }
+
     // Cache the result (only if no image data and content is valid)
     if (!imageData && isValidContent(result)) {
       cacheService.set(cacheKey, result);
@@ -173,11 +181,16 @@ export const generateStudyContent = async (
     
     return result;
   } catch (error: any) {
+    clearTimeout(timeoutId);
     const duration = Date.now() - startTime;
     emitPerformanceEvent('api_response', { duration });
     emitPerformanceEvent('api_error', { error: error?.message });
     
     console.error("Gemini API Error:", error);
+
+    if (error.name === 'AbortError') {
+      return "ERROR_TIMEOUT";
+    }
 
     // Check for rate limit (429) or server overload (503)
     const errorString = error?.toString() || "";
@@ -221,6 +234,9 @@ const generateQuiz = async (
 
   const quizPrompt = `Generate a 10-question multiple choice quiz for "${userInput}". Return ONLY JSON with format {"quiz": [{"question": "question", "options": ["A", "B", "C", "D"], "correctAnswer": "exact option", "explanation": "why correct"}]}. No other text.`;
 
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 45000); // 45 second timeout for structured data
+
   try {
     const response = await ai.models.generateContent({
       model: modelId,
@@ -255,6 +271,7 @@ const generateQuiz = async (
       },
     });
 
+    clearTimeout(timeoutId);
     const responseText = response.text;
     
     // Validate the response structure
@@ -271,7 +288,9 @@ const generateQuiz = async (
           q.options.length === 4 &&
           q.correctAnswer && 
           q.explanation &&
-          q.options.includes(q.correctAnswer) // Ensure correctAnswer is in options
+          q.options.includes(q.correctAnswer) &&
+          isValidContent(q.question) &&
+          isValidContent(q.explanation)
         );
         
         if (validQuestions.length > 0) {
@@ -280,32 +299,19 @@ const generateQuiz = async (
       }
       
       // If validation fails, create fallback
-      throw new Error('Invalid quiz structure');
-      
+      return "ERROR_GENERATION_FAILED";
     } catch (parseError) {
-      console.error('Failed to parse quiz response:', parseError);
-      
-      // Create fallback quiz from plain text if needed
-      const fallbackQuiz = {
-        quiz: [{
-          question: `Quiz Question for ${userInput}`,
-          options: [
-            "Option A",
-            "Option B", 
-            "Option C",
-            "Option D"
-          ],
-          correctAnswer: "Option A",
-          explanation: responseText || "Unable to generate quiz questions. Please try again."
-        }]
-      };
-      
-      return JSON.stringify(fallbackQuiz);
+      console.error("Failed to parse quiz response:", parseError);
+      return "ERROR_GENERATION_FAILED";
     }
-    
   } catch (error: any) {
+    clearTimeout(timeoutId);
     console.error("Quiz generation error:", error);
     
+    if (error.name === 'AbortError') {
+      return "ERROR_TIMEOUT";
+    }
+
     // Check for rate limit
     const errorString = error?.toString() || "";
     if (errorString.includes("429") || error?.status === 429 || errorString.toLowerCase().includes("rate limit")) {
@@ -320,14 +326,7 @@ const generateQuiz = async (
     }
     
     // Generic error fallback
-    return JSON.stringify({
-      quiz: [{
-        question: "Generation Error",
-        options: ["Try again", "Check connection", "Refresh page", "Contact support"],
-        correctAnswer: "Try again",
-        explanation: "Unable to generate quiz right now. Please try again later."
-      }]
-    });
+    return "ERROR_GENERATION_FAILED";
   }
 };
 
@@ -362,6 +361,9 @@ const generateFlashcards = async (
 
   const flashcardPrompt = `Generate flashcards for "${userInput}". Return ONLY JSON with format {"flashcards": [{"front": "question", "back": "answer", "explanation": "why this is correct"}]}. No other text.`;
 
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 45000); // 45 second timeout for structured data
+
   try {
     const response = await ai.models.generateContent({
       model: modelId,
@@ -390,6 +392,7 @@ const generateFlashcards = async (
       },
     });
 
+    clearTimeout(timeoutId);
     const responseText = response.text;
     
     // Validate the response structure
@@ -399,7 +402,11 @@ const generateFlashcards = async (
       // Ensure we have the expected structure
       if (parsed.flashcards && Array.isArray(parsed.flashcards) && parsed.flashcards.length > 0) {
         // Validate each flashcard has front, back, and explanation
-        const validFlashcards = parsed.flashcards.filter(fc => fc.front && fc.back && fc.explanation);
+        const validFlashcards = parsed.flashcards.filter(fc => 
+          fc.front && fc.back && fc.explanation &&
+          isValidContent(fc.front) &&
+          isValidContent(fc.back)
+        );
         
         if (validFlashcards.length > 0) {
           return JSON.stringify({ flashcards: validFlashcards });
@@ -407,26 +414,19 @@ const generateFlashcards = async (
       }
       
       // If validation fails, create fallback
-      throw new Error('Invalid flashcard structure');
-      
+      return "ERROR_GENERATION_FAILED";
     } catch (parseError) {
-      console.error('Failed to parse flashcard response:', parseError);
-      
-      // Create fallback flashcard from plain text if needed
-      const fallbackFlashcard = {
-        flashcards: [{
-          front: `Flashcards for ${userInput}`,
-          back: responseText || "Unable to generate flashcards. Please try again.",
-          explanation: "This flashcard was generated as a fallback due to a parsing error. Please try generating flashcards again for proper explanations."
-        }]
-      };
-      
-      return JSON.stringify(fallbackFlashcard);
+      console.error("Failed to parse flashcard response:", parseError);
+      return "ERROR_GENERATION_FAILED";
     }
-    
   } catch (error: any) {
+    clearTimeout(timeoutId);
     console.error("Flashcard generation error:", error);
     
+    if (error.name === 'AbortError') {
+      return "ERROR_TIMEOUT";
+    }
+
     // Check for rate limit
     const errorString = error?.toString() || "";
     if (errorString.includes("429") || error?.status === 429 || errorString.toLowerCase().includes("rate limit")) {
@@ -440,12 +440,6 @@ const generateFlashcards = async (
     }
     
     // Generic error fallback
-    return JSON.stringify({
-      flashcards: [{
-        front: "Generation Error",
-        back: "Unable to generate flashcards right now. Please try again later.",
-        explanation: "An error occurred during flashcard generation. Please check your connection and try again."
-      }]
-    });
+    return "ERROR_GENERATION_FAILED";
   }
 };
