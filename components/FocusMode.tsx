@@ -34,7 +34,7 @@ const FocusMode: React.FC<FocusModeProps> = ({ userId, onExit, onSessionComplete
 
  // Timer Effect
  useEffect(() => {
- let interval: any;
+ let interval: ReturnType<typeof setInterval> | undefined;
  if (step === FocusStep.ACTIVE && isActive && timeLeft > 0) {
  interval = setInterval(() => {
  setTimeLeft((prev) => prev - 1);
