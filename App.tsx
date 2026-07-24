@@ -89,6 +89,14 @@ const AppContent: React.FC = () => {
     };
   }, []);
 
+  // Existing users already have cycle/option set but may not have onboarding_completed
+  // flagged yet — mark it complete so they aren't sent back through Onboarding.
+  useEffect(() => {
+    if (userProfile && !userProfile.onboarding_completed && userProfile.cycle && userProfile.option) {
+      setUserProfile({ ...userProfile, onboarding_completed: true });
+    }
+  }, [userProfile]);
+
   const fetchProfile = async (userId: string) => {
     try {
       const { data, error } = await supabase
@@ -383,13 +391,9 @@ const AppContent: React.FC = () => {
   }
 
   if (userProfile && !userProfile.onboarding_completed) {
-    // Skip onboarding if cycle and option are already set (existing users)
+    // Skip onboarding if cycle and option are already set (existing users) —
+    // the useEffect above will flip onboarding_completed on the next render.
     if (userProfile.cycle && userProfile.option) {
-      // Update local state directly to show dashboard
-      setUserProfile({
-        ...userProfile,
-        onboarding_completed: true
-      });
       return null;
     }
 
