@@ -140,6 +140,14 @@ const AppContent: React.FC = () => {
 
         if (insertError) {
           console.error('Error creating profile:', insertError);
+          // Profile creation can fail because the session's user no longer exists
+          // server-side (profiles.id has a foreign key to auth.users.id) — e.g. a
+          // stale browser session left over after the account was deleted. That
+          // session is unusable, so sign out instead of leaving the user stuck on
+          // a profile that can never load.
+          await supabase.auth.signOut();
+          setSession(null);
+          setUserProfile(null);
           return;
         }
 
