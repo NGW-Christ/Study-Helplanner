@@ -52,25 +52,12 @@ const PlannerView: React.FC<PlannerViewProps> = ({ userId, userProfile, onActivi
  };
 
  const handleAddPlan = async () => {
-  console.log('handleAddPlan called', { newTaskDesc, newSubject, newDate, isExam });
-  
   if (!newSubject) {
-    console.log('Validation failed: missing subject');
     return;
   }
 
   const finalSubject = isExam ? 'Exam' : newSubject;
   const finalDesc = isExam ? `EXAM: ${newTaskDesc || 'Exam'} (${newSubject})` : (newTaskDesc || `${newSubject} Study Session`);
-
-  console.log('Inserting plan:', {
-    user_id: userId,
-    subject: finalSubject,
-    task_description: finalDesc,
-    planned_date: newDate,
-    start_time: newStartTime,
-    end_time: newEndTime,
-    is_completed: false
-  });
 
   try {
     const { data, error } = await supabase.from('study_plans').insert({
@@ -90,7 +77,6 @@ const PlannerView: React.FC<PlannerViewProps> = ({ userId, userProfile, onActivi
     }
 
     if (data) {
-      console.log('Successfully inserted plan:', data);
       setPlans([...plans, data]);
       setIsAdding(false);
       setNewTaskDesc('');

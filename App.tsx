@@ -1,4 +1,3 @@
-console.log('--- APP.TSX LOADING ---');
 import 'katex/dist/katex.min.css';
 import { Calendar, FileText, HelpCircle, Hourglass, Loader2, Menu, RefreshCw, Trophy, Zap } from 'lucide-react';
 import React, { useEffect, useState } from 'react';
@@ -56,26 +55,22 @@ const AppContent: React.FC = () => {
         data: { subscription },
       } = supabase.auth.onAuthStateChange(async (_event, session) => {
         if (!mounted) return;
-        
-        console.log('Auth state change event:', _event);
+
         setSession(session);
-        
+
         if (session) {
           try {
-            console.log('User session found, fetching data...');
             await Promise.all([
               fetchProfile(session.user.id),
               fetchStreak(session.user.id),
               fetchTaskCount(session.user.id)
             ]);
-            console.log('Data fetching complete');
           } catch (error) {
             console.error('Auth state change data fetch error:', error);
           } finally {
             if (mounted) setLoading(false);
           }
         } else {
-          console.log('No user session found');
           setUserProfile(null);
           setStreak(0);
           if (mounted) setLoading(false);
@@ -94,11 +89,8 @@ const AppContent: React.FC = () => {
     };
   }, []);
 
-
-
   const fetchProfile = async (userId: string) => {
     try {
-      console.log('Fetching profile for:', userId);
       const { data, error } = await supabase
         .from('profiles')
         .select('*')
@@ -106,7 +98,6 @@ const AppContent: React.FC = () => {
         .single()
 
       if (error) {
-        console.log('Profile not found, creating new profile...');
         // Create a new profile if it doesn't exist (ProfileService.upsertProfile logic)
         const { data: newProfile, error: insertError } = await supabase
           .from('profiles')
@@ -129,7 +120,6 @@ const AppContent: React.FC = () => {
         }
 
         if (newProfile) {
-          console.log('New profile created successfully:', newProfile);
           setUserProfile({
             id: newProfile.id,
             email: newProfile.email,
@@ -148,8 +138,6 @@ const AppContent: React.FC = () => {
       }
 
       if (data) {
-        console.log('Profile fetched successfully:', data);
-        
         // Sync with session metadata if database fields are missing but metadata has them
         let needsUpdate = false;
         const updates: any = {};
@@ -164,7 +152,6 @@ const AppContent: React.FC = () => {
         }
         
         if (needsUpdate) {
-          console.log('Syncing database profile with auth metadata:', updates);
           const { data: updatedData } = await supabase
             .from('profiles')
             .update({
@@ -300,7 +287,6 @@ const AppContent: React.FC = () => {
       if (updateError) {
         console.error('Error updating streak:', updateError);
       } else {
-        console.log('Streak updated to:', newStreak);
         setStreak(newStreak);
       }
     } catch (error) {
@@ -339,7 +325,6 @@ const AppContent: React.FC = () => {
 
       // Check if user has reached 2 generations today and update streak
       if (newDailyCount === 2) {
-        console.log('User reached 2 AI generations today, updating streak!');
         await updateStreak(session.user.id);
       }
 
@@ -400,7 +385,6 @@ const AppContent: React.FC = () => {
   if (userProfile && !userProfile.onboarding_completed) {
     // Skip onboarding if cycle and option are already set (existing users)
     if (userProfile.cycle && userProfile.option) {
-      console.log('Existing user with profile, skipping onboarding');
       // Update local state directly to show dashboard
       setUserProfile({
         ...userProfile,
